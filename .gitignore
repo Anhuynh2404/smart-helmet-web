@@ -3,10 +3,12 @@ node_modules/
 .pnp
 .pnp.js
 
-# Build outputs
+# Build & TypeScript cache outputs
 dist/
 dist-ssr/
 build/
+.vite/
+*.tsbuildinfo
 *.local
 
 # Environment variables & sensitive Firebase keys
@@ -14,14 +16,30 @@ build/
 .env.*
 !.env.example
 
+# AI Agent & Skills local directories
+.agents/
+.claude/
+.gemini/
+.cursor/
+skills-lock.json
+
 # Logs
-logs
+logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
+
+# Firebase cache & emulator logs
+.firebase/
+firebase-debug.log*
+firestore-debug.log*
+database-debug.log*
+pubsub-debug.log*
+ui-debug.log*
+.runtimeconfig.json
 
 # Editor directories and files
 .vscode/*
@@ -37,8 +55,3 @@ lerna-debug.log*
 .DS_Store
 Thumbs.db
 Desktop.ini
-
-# Firebase cache / local emulators
-.firebase/
-firebase-debug.log*
-ui-debug.log*
