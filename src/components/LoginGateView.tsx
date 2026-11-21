@@ -1,9 +1,6 @@
 import React, { useState } from 'react';
 import { AlertCircle, Loader2 } from 'lucide-react';
-import {
-  registerFirebaseEmail,
-  signInFirebaseEmail,
-} from '../services/firebaseService';
+import { signInFirebaseEmail } from '../services/firebaseService';
 
 interface LoginGateViewProps {
   onLoginSuccess?: (info: { email: string; fullName?: string }) => void;
@@ -12,8 +9,6 @@ interface LoginGateViewProps {
 export const LoginGateView: React.FC<LoginGateViewProps> = ({
   onLoginSuccess,
 }) => {
-  const [mode, setMode] = useState<'LOGIN' | 'REGISTER'>('LOGIN');
-  const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -28,12 +23,6 @@ export const LoginGateView: React.FC<LoginGateViewProps> = ({
       lower.includes('user-not-found')
     ) {
       return 'Email hoặc mật khẩu không chính xác. Vui lòng kiểm tra lại.';
-    }
-    if (lower.includes('email-already-in-use')) {
-      return 'Email này đã được đăng ký. Vui lòng chuyển sang Đăng nhập.';
-    }
-    if (lower.includes('weak-password')) {
-      return 'Mật khẩu cần có ít nhất 6 ký tự.';
     }
     if (lower.includes('invalid-email')) {
       return 'Định dạng email không hợp lệ.';
@@ -51,16 +40,8 @@ export const LoginGateView: React.FC<LoginGateViewProps> = ({
 
     try {
       const cleanEmail = email.trim();
-      if (mode === 'LOGIN') {
-        await signInFirebaseEmail(cleanEmail, password);
-        onLoginSuccess?.({ email: cleanEmail });
-      } else {
-        await registerFirebaseEmail(cleanEmail, password);
-        onLoginSuccess?.({
-          email: cleanEmail,
-          fullName: fullName.trim() || undefined,
-        });
-      }
+      await signInFirebaseEmail(cleanEmail, password);
+      onLoginSuccess?.({ email: cleanEmail });
     } catch (err: unknown) {
       setError(getFriendlyErrorMessage(err));
     } finally {
@@ -77,12 +58,10 @@ export const LoginGateView: React.FC<LoginGateViewProps> = ({
             SH
           </div>
           <h1 className="mt-4 text-xl font-bold text-zinc-900">
-            {mode === 'LOGIN' ? 'Đăng nhập Smart Helmet' : 'Tạo tài khoản mới'}
+            Đăng nhập Smart Helmet
           </h1>
           <p className="mt-1 text-xs text-zinc-500">
-            {mode === 'LOGIN'
-              ? 'Đăng nhập để vào trang quản lý và giám sát mũ bảo hiểm'
-              : 'Đăng ký tài khoản để kết nối và theo dõi mũ bảo hiểm thông minh'}
+            Đăng nhập để vào trang quản lý và giám sát mũ bảo hiểm
           </p>
         </div>
 
@@ -94,25 +73,8 @@ export const LoginGateView: React.FC<LoginGateViewProps> = ({
           </div>
         )}
 
-        {/* Login / Register Form */}
+        {/* Login Form */}
         <form onSubmit={handleSubmit} className="space-y-4 text-xs">
-          {mode === 'REGISTER' && (
-            <div>
-              <label className="block text-zinc-700 font-semibold mb-1.5">
-                Họ và tên
-              </label>
-              <input
-                type="text"
-                required
-                disabled={busy}
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                placeholder="Nhập họ và tên của bạn"
-                className="w-full rounded-xl border border-zinc-200 bg-zinc-50/50 px-3.5 py-2.5 text-zinc-900 focus:border-zinc-400 focus:bg-white focus:outline-none transition"
-              />
-            </div>
-          )}
-
           <div>
             <label className="block text-zinc-700 font-semibold mb-1.5">
               Email
@@ -149,42 +111,9 @@ export const LoginGateView: React.FC<LoginGateViewProps> = ({
             className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-[#1890FF] py-3 text-xs font-semibold text-white hover:bg-[#40A9FF] disabled:opacity-50 transition shadow-2xs"
           >
             {busy && <Loader2 className="h-4 w-4 animate-spin" />}
-            <span>{mode === 'LOGIN' ? 'Đăng nhập' : 'Đăng ký tài khoản'}</span>
+            <span>Đăng nhập</span>
           </button>
         </form>
-
-        {/* Toggle Mode */}
-        <div className="pt-4 border-t border-zinc-100 text-center text-xs text-zinc-500">
-          {mode === 'LOGIN' ? (
-            <>
-              Chưa có tài khoản?{' '}
-              <button
-                type="button"
-                onClick={() => {
-                  setMode('REGISTER');
-                  setError(null);
-                }}
-                className="font-semibold text-blue-600 hover:underline"
-              >
-                Đăng ký mới
-              </button>
-            </>
-          ) : (
-            <>
-              Đã có tài khoản?{' '}
-              <button
-                type="button"
-                onClick={() => {
-                  setMode('LOGIN');
-                  setError(null);
-                }}
-                className="font-semibold text-blue-600 hover:underline"
-              >
-                Quay lại đăng nhập
-              </button>
-            </>
-          )}
-        </div>
       </div>
     </div>
   );
