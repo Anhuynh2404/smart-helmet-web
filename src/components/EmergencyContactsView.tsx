@@ -326,10 +326,11 @@ export const EmergencyContactsView: React.FC<EmergencyContactsViewProps> = ({
               >
                 <div className="flex items-start sm:items-center gap-4">
                   <span
-                    className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${contact.priority <= 3
+                    className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                      contact.priority <= 3
                         ? 'bg-[#314659] text-white'
                         : 'bg-[#F0F2F5] text-[#595959]'
-                      }`}
+                    }`}
                   >
                     {contact.priority}
                   </span>
@@ -360,10 +361,11 @@ export const EmergencyContactsView: React.FC<EmergencyContactsViewProps> = ({
                         receiveSms: !isSmsOn,
                       })
                     }
-                    className={`rounded-lg px-2.5 py-1 text-xs font-medium border transition ${isSmsOn
+                    className={`rounded-lg px-2.5 py-1 text-xs font-medium border transition ${
+                      isSmsOn
                         ? 'bg-blue-50/70 text-blue-700 border-blue-200'
                         : 'bg-zinc-50 text-zinc-400 border-zinc-200'
-                      }`}
+                    }`}
                   >
                     SMS: {isSmsOn ? 'Bật' : 'Tắt'}
                   </button>
@@ -377,10 +379,11 @@ export const EmergencyContactsView: React.FC<EmergencyContactsViewProps> = ({
                         receiveCall: !isCallOn,
                       })
                     }
-                    className={`rounded-lg px-2.5 py-1 text-xs font-medium border transition ${isCallOn
+                    className={`rounded-lg px-2.5 py-1 text-xs font-medium border transition ${
+                      isCallOn
                         ? 'bg-emerald-50/70 text-emerald-700 border-emerald-200'
                         : 'bg-zinc-50 text-zinc-400 border-zinc-200'
-                      }`}
+                    }`}
                   >
                     Cuộc gọi: {isCallOn ? 'Bật' : 'Tắt'}
                   </button>
