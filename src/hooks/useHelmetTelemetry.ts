@@ -7,7 +7,7 @@ import {
   subscribeToFirebaseConnectionState,
   subscribeToHelmetTelemetry,
 } from '../services/firebaseService';
-import { FirebaseHelmetTelemetry } from '../types/helmet';
+import { FirebaseHelmetTelemetry, LiveTelemetrySample } from '../types/helmet';
 
 export type TelemetryErrorCode =
   | 'CONFIG_MISSING'
@@ -17,6 +17,7 @@ export type TelemetryErrorCode =
 
 export interface UseHelmetTelemetryResult {
   telemetry: FirebaseHelmetTelemetry | null;
+  liveSamples: LiveTelemetrySample[];
   loading: boolean;
   error: string | null;
   errorCode: TelemetryErrorCode;
@@ -33,29 +34,30 @@ export interface UseHelmetTelemetryResult {
 }
 
 const STALE_THRESHOLD_SECONDS = 90;
+const MAX_LIVE_SAMPLES = 20;
 const geocodeCache = new Map<string, string>();
 
 /**
- * Parses `updatedAt` from ESP32 telemetry.
+ * Parses `lastSeen` (or legacy `updatedAt`) from ESP32 status node.
  */
-function parseUpdatedAt(
-  updatedAt: number | string | undefined,
+function parseLastSeen(
+  lastSeenVal: number | string | undefined,
   lastPayloadChangeMs: number | null
 ): Date | null {
-  if (typeof updatedAt === 'number' && Number.isFinite(updatedAt)) {
-    if (updatedAt > 1e12) {
-      return new Date(updatedAt);
+  if (typeof lastSeenVal === 'number' && Number.isFinite(lastSeenVal)) {
+    if (lastSeenVal > 1e12) {
+      return new Date(lastSeenVal);
     }
-    if (updatedAt > 1e9) {
-      return new Date(updatedAt * 1000);
+    if (lastSeenVal > 1e9) {
+      return new Date(lastSeenVal * 1000);
     }
-  } else if (typeof updatedAt === 'string' && updatedAt.trim() !== '') {
-    const asNum = Number(updatedAt);
+  } else if (typeof lastSeenVal === 'string' && lastSeenVal.trim() !== '') {
+    const asNum = Number(lastSeenVal);
     if (Number.isFinite(asNum)) {
       if (asNum > 1e12) return new Date(asNum);
       if (asNum > 1e9) return new Date(asNum * 1000);
     }
-    const parsed = new Date(updatedAt);
+    const parsed = new Date(lastSeenVal);
     if (!Number.isNaN(parsed.getTime()) && parsed.getFullYear() >= 2020) {
       return parsed;
     }
@@ -70,7 +72,11 @@ function parseUpdatedAt(
 export function useHelmetTelemetry(
   deviceId: string = DEFAULT_HELMET_DEVICE_ID
 ): UseHelmetTelemetryResult {
-  const [telemetry, setTelemetry] = useState<FirebaseHelmetTelemetry | null>(null);
+  const cleanId = deviceId === 'helmet-001' ? 'helmet01' : deviceId;
+  const [telemetry, setTelemetry] = useState<FirebaseHelmetTelemetry | null>(
+    null
+  );
+  const [liveSamples, setLiveSamples] = useState<LiveTelemetrySample[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [errorCode, setErrorCode] = useState<TelemetryErrorCode>(null);
@@ -85,7 +91,7 @@ export function useHelmetTelemetry(
   const lastPayloadChangeMsRef = useRef<number | null>(null);
 
   const configured = isFirebaseConfigured();
-  const telemetryPath = `devices/${deviceId}/telemetry`;
+  const telemetryPath = `helmets/${cleanId}/status`;
 
   // 1. Listen to Firebase Authentication state
   useEffect(() => {
@@ -112,7 +118,7 @@ export function useHelmetTelemetry(
     return () => unsubConn();
   }, [configured]);
 
-  // 3. Subscribe to `devices/{deviceId}/telemetry` via `onValue()`
+  // 3. Subscribe to `/helmets/{deviceId}/status` via `onValue()`
   useEffect(() => {
     setLoading(true);
     setError(null);
@@ -128,7 +134,7 @@ export function useHelmetTelemetry(
     }
 
     const unsubscribe = subscribeToHelmetTelemetry(
-      deviceId,
+      cleanId,
       (data) => {
         setLoading(false);
         setError(null);
@@ -136,9 +142,80 @@ export function useHelmetTelemetry(
 
         if (data) {
           const serialized = JSON.stringify(data);
+          const now = Date.now();
           if (serialized !== lastPayloadHashRef.current) {
             lastPayloadHashRef.current = serialized;
-            lastPayloadChangeMsRef.current = Date.now();
+            lastPayloadChangeMsRef.current = now;
+
+            // Collect live sample in memory while the Website is open
+            const ax =
+              typeof data.mpu?.accel?.x === 'number'
+                ? data.mpu.accel.x
+                : typeof data.mpu?.ax === 'number'
+                ? data.mpu.ax
+                : 0;
+            const ay =
+              typeof data.mpu?.accel?.y === 'number'
+                ? data.mpu.accel.y
+                : typeof data.mpu?.ay === 'number'
+                ? data.mpu.ay
+                : 0;
+            const az =
+              typeof data.mpu?.accel?.z === 'number'
+                ? data.mpu.accel.z
+                : typeof data.mpu?.az === 'number'
+                ? data.mpu.az
+                : 0;
+
+            const accelTotalG =
+              typeof data.mpu?.totalG === 'number'
+                ? data.mpu.totalG
+                : Number(Math.sqrt(ax * ax + ay * ay + az * az).toFixed(2));
+
+            const gx =
+              typeof data.mpu?.gyro?.x === 'number'
+                ? data.mpu.gyro.x
+                : typeof data.mpu?.gx === 'number'
+                ? data.mpu.gx
+                : 0;
+            const gy =
+              typeof data.mpu?.gyro?.y === 'number'
+                ? data.mpu.gyro.y
+                : typeof data.mpu?.gy === 'number'
+                ? data.mpu.gy
+                : 0;
+            const gz =
+              typeof data.mpu?.gyro?.z === 'number'
+                ? data.mpu.gyro.z
+                : typeof data.mpu?.gz === 'number'
+                ? data.mpu.gz
+                : 0;
+
+            const gyroMagnitudeDps =
+              typeof data.mpu?.gyroMagnitudeDps === 'number'
+                ? data.mpu.gyroMagnitudeDps
+                : Number(Math.sqrt(gx * gx + gy * gy + gz * gz).toFixed(2));
+
+            const sample: LiveTelemetrySample = {
+              timeLabel: new Date(now).toLocaleTimeString('vi-VN', {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+              }),
+              timestampMs: now,
+              accelTotalG,
+              ax,
+              ay,
+              az,
+              gyroMagnitudeDps,
+              gx,
+              gy,
+              gz,
+            };
+
+            setLiveSamples((prev) =>
+              [...prev, sample].slice(-MAX_LIVE_SAMPLES)
+            );
           }
         }
         setTelemetry(data);
@@ -154,14 +231,14 @@ export function useHelmetTelemetry(
         ) {
           setErrorCode('PERMISSION_DENIED');
           setError(
-            'Từ chối quyền đọc dữ liệu (permission_denied). Vui lòng đăng nhập tài khoản ở mục "Hồ sơ cá nhân".'
+            'Từ chối quyền đọc dữ liệu (permission_denied). Vui lòng đăng nhập tài khoản hợp lệ.'
           );
         } else if (err.code === 'CONFIG_MISSING') {
           setErrorCode('CONFIG_MISSING');
           setError(msg);
         } else {
           setErrorCode('NETWORK_ERROR');
-          setError(`Không thể đọc dữ liệu: ${msg}`);
+          setError(`Không thể đọc dữ liệu tại /${telemetryPath}: ${msg}`);
         }
       }
     );
@@ -169,20 +246,28 @@ export function useHelmetTelemetry(
     return () => {
       unsubscribe();
     };
-  }, [deviceId, configured, authUser?.uid]);
+  }, [cleanId, configured, authUser?.uid]);
 
-  // 4. Reverse Geocoding: Convert GPS (latitude, longitude) into a concrete street/area address
-  const gpsFix = telemetry?.gps?.fix === true;
-  const rawLat = telemetry?.gps?.latitude;
-  const rawLng = telemetry?.gps?.longitude;
+  // 4. Reverse Geocoding: Convert GPS (lat, lon) into a concrete street/area address
+  const gpsValid =
+    telemetry?.gps?.valid === true || telemetry?.gps?.fix === true;
+  const rawLat =
+    typeof telemetry?.gps?.lat === 'number'
+      ? telemetry.gps.lat
+      : telemetry?.gps?.latitude;
+  const rawLng =
+    typeof telemetry?.gps?.lon === 'number'
+      ? telemetry.gps.lon
+      : telemetry?.gps?.longitude;
 
   useEffect(() => {
     if (
-      !gpsFix ||
+      !gpsValid ||
       typeof rawLat !== 'number' ||
       typeof rawLng !== 'number' ||
       !Number.isFinite(rawLat) ||
-      !Number.isFinite(rawLng)
+      !Number.isFinite(rawLng) ||
+      (rawLat === 0 && rawLng === 0)
     ) {
       setResolvedAddress(null);
       setAddressLoading(false);
@@ -247,7 +332,7 @@ export function useHelmetTelemetry(
     return () => {
       cancelled = true;
     };
-  }, [gpsFix, rawLat, rawLng]);
+  }, [gpsValid, rawLat, rawLng]);
 
   // 5. Local clock tick every 5 seconds purely to calculate staleness (> 90s)
   useEffect(() => {
@@ -257,8 +342,9 @@ export function useHelmetTelemetry(
     return () => clearInterval(timer);
   }, []);
 
+  const rawTimestamp = telemetry?.lastSeen ?? telemetry?.updatedAt;
   const lastUpdatedDate = telemetry
-    ? parseUpdatedAt(telemetry.updatedAt, lastPayloadChangeMsRef.current)
+    ? parseLastSeen(rawTimestamp, lastPayloadChangeMsRef.current)
     : null;
 
   const secondsSinceUpdate =
@@ -273,6 +359,7 @@ export function useHelmetTelemetry(
 
   return {
     telemetry,
+    liveSamples,
     loading,
     error,
     errorCode,

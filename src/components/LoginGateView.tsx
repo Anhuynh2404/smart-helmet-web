@@ -55,13 +55,13 @@ export const LoginGateView: React.FC<LoginGateViewProps> = ({
         {/* Brand Header */}
         <div className="flex flex-col items-center text-center">
           <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#1890FF] text-white font-bold text-base shadow-xs">
-            SH
+            CB
           </div>
           <h1 className="mt-4 text-xl font-bold text-zinc-900">
-            Đăng nhập Smart Helmet
+            Đăng nhập CAS-BOX
           </h1>
           <p className="mt-1 text-xs text-zinc-500">
-            Đăng nhập để vào trang quản lý và giám sát mũ bảo hiểm
+            Đăng nhập để vào trang quản lý và giám sát thiết bị CAS-BOX
           </p>
         </div>
 

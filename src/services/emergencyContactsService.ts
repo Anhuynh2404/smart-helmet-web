@@ -1,5 +1,6 @@
 import {
   DataSnapshot,
+  get,
   onValue,
   ref,
   remove,
@@ -16,6 +17,8 @@ import {
  * Chuẩn hóa số điện thoại Việt Nam trước khi lưu lên Firebase cho ESP32:
  * - Xóa toàn bộ khoảng trắng, dấu gạch ngang, dấu chấm, dấu ngoặc
  * - Chuyển đầu số +84 hoặc 84 về 0 (VD: "+84 909 128 456" -> "0909128456")
+ * Chuẩn hóa số điện thoại Việt Nam về dạng 10 số bắt đầu bằng 0:
+ * VD: "+84 947 426 157" -> "0947426157"
  */
 export function normalizeVietnamPhone(raw: string): string {
   const cleaned = raw.replace(/[\s\-().]/g, '');
@@ -26,6 +29,18 @@ export function normalizeVietnamPhone(raw: string): string {
     return '0' + cleaned.slice(2);
   }
   return cleaned;
+}
+
+/**
+ * Chuyển số điện thoại sang chuẩn quốc tế E.164 (+84...) để đồng bộ trực tiếp xuống `status/contacts/p1` của ESP32
+ * VD: "0376087754" -> "+84376087754"
+ */
+export function toE164VietnamPhone(raw: string): string {
+  const norm = normalizeVietnamPhone(raw);
+  if (norm.startsWith('0') && norm.length === 10) {
+    return '+84' + norm.slice(1);
+  }
+  return norm;
 }
 
 /**
@@ -80,6 +95,11 @@ export function validateEmergencyPhone(
  * Chuyển đổi dữ liệu thô từ Firebase sang kiểu EmergencyContact chuẩn
  */
 function mapRawContact(key: string, raw: Record<string, unknown>, fallbackPriority: number): EmergencyContact {
+function mapRawContact(
+  key: string,
+  raw: Record<string, unknown>,
+  fallbackPriority: number
+): EmergencyContact {
   const smsEnabled =
     typeof raw.smsEnabled === 'boolean'
       ? raw.smsEnabled
@@ -120,8 +140,47 @@ function mapRawContact(key: string, raw: Record<string, unknown>, fallbackPriori
 }
 
 /**
+ * Đồng bộ danh sách số điện thoại ưu tiên (p1, p2, p3...) trực tiếp xuống
+ * `/helmets/{deviceId}/status/contacts` và `/helmets/{deviceId}/config/contacts`
+ * để thiết bị ESP32 cập nhật ngay số SOS mới khi người dùng Thêm / Sửa / Xóa / Đổi thứ tự trên Web.
+ */
+async function syncContactsToEspDevice(
+  deviceId: string,
+  contacts: EmergencyContact[]
+) {
+  const db = getFirebaseDatabase();
+  if (!db) return;
+
+  const cleanId = deviceId === 'helmet-001' ? 'helmet01' : deviceId;
+  const now = Date.now();
+  const sorted = [...contacts].sort((a, b) => a.priority - b.priority);
+
+  const deviceContactsNode: Record<string, string> = {};
+  sorted.forEach((c, idx) => {
+    deviceContactsNode[`p${idx + 1}`] = toE164VietnamPhone(c.phone);
+  });
+
+  // Nếu xóa hết toàn bộ liên hệ, đặt p1 rỗng để xóa số default trên thiết bị
+  if (sorted.length === 0) {
+    deviceContactsNode.p1 = '';
+  }
+
+  await Promise.all([
+    set(ref(db, `helmets/${cleanId}/status/contacts`), deviceContactsNode),
+    update(ref(db, `helmets/${cleanId}/config`), {
+      contacts: deviceContactsNode,
+      updatedAt: now,
+    }),
+    set(ref(db, `helmets/${cleanId}/contactsUpdatedAt`), now),
+    set(ref(db, `helmets/${cleanId}/contactsInitialized`), true),
+  ]);
+}
+
+/**
  * Lắng nghe danh sách người thân theo thời gian thực từ Firebase Realtime Database
  * Path: devices/{deviceId}/emergencyContacts
+ * Nếu lần đầu chưa có danh sách trên Web nhưng trên ESP32 có số default (`status/contacts/p1`),
+ * tự động nạp số default đó thành một người thân bình thường để người dùng có thể Sửa hoặc Xóa ngay.
  */
 export function subscribeToEmergencyContacts(
   deviceId: string = DEFAULT_HELMET_DEVICE_ID,
@@ -138,12 +197,68 @@ export function subscribeToEmergencyContacts(
     return () => {};
   }
 
-  const contactsRef = ref(db, `devices/${deviceId}/emergencyContacts`);
+  const cleanId = deviceId === 'helmet-001' ? 'helmet01' : deviceId;
+  const contactsRef = ref(db, `helmets/${cleanId}/emergencyContacts`);
 
   return onValue(
     contactsRef,
     (snapshot: DataSnapshot) => {
+    async (snapshot: DataSnapshot) => {
       if (!snapshot.exists()) {
+        // Kiểm tra nếu chưa từng khởi tạo thì lấy số default từ status/contacts/p1 của thiết bị
+        try {
+          const initSnap = await get(
+            ref(db, `helmets/${cleanId}/contactsInitialized`)
+          );
+          if (!initSnap.exists()) {
+            const espContactsSnap = await get(
+              ref(db, `helmets/${cleanId}/status/contacts`)
+            );
+            if (espContactsSnap.exists()) {
+              const espVal = espContactsSnap.val() as Record<string, unknown>;
+              const p1Raw =
+                typeof espVal?.p1 === 'string' ? espVal.p1.trim() : '';
+              if (p1Raw) {
+                const now = Date.now();
+                const defaultId = 'contact_default_p1';
+                const defaultContact: EmergencyContact = {
+                  id: defaultId,
+                  priority: 1,
+                  name: 'Liên hệ mặc định',
+                  relationship: 'SOS Thiết bị',
+                  phone: normalizeVietnamPhone(p1Raw),
+                  smsEnabled: true,
+                  callEnabled: true,
+                  updatedAt: now,
+                  receiveSms: true,
+                  receiveCall: true,
+                  isVerified: true,
+                };
+                await set(
+                  ref(db, `helmets/${cleanId}/emergencyContacts/${defaultId}`),
+                  {
+                    id: defaultContact.id,
+                    priority: defaultContact.priority,
+                    name: defaultContact.name,
+                    relationship: defaultContact.relationship,
+                    phone: defaultContact.phone,
+                    smsEnabled: true,
+                    callEnabled: true,
+                    updatedAt: now,
+                  }
+                );
+                await set(
+                  ref(db, `helmets/${cleanId}/contactsInitialized`),
+                  true
+                );
+                return;
+              }
+            }
+          }
+        } catch {
+          // Ignore fallback seed check error
+        }
+
         onData([]);
         return;
       }
@@ -155,6 +270,13 @@ export function subscribeToEmergencyContacts(
         val.forEach((item, idx) => {
           if (item && typeof item === 'object') {
             list.push(mapRawContact(String(item.id || `contact_${idx + 1}`), item, idx + 1));
+            list.push(
+              mapRawContact(
+                String(item.id || `contact_${idx + 1}`),
+                item,
+                idx + 1
+              )
+            );
           }
         });
       } else if (val && typeof val === 'object') {
@@ -179,11 +301,13 @@ export function subscribeToEmergencyContacts(
 /**
  * Cập nhật timestamp tổng ở node `devices/{deviceId}/contactsUpdatedAt`
  * giúp ESP32 dễ dàng kiểm tra phiên bản danh bạ mới nhất.
+ * Thêm mới một người thân lên Firebase và đồng bộ ngay xuống thiết bị
  */
 async function touchContactsVersion(deviceId: string, timestamp: number) {
   const db = getFirebaseDatabase();
   if (!db) return;
-  await set(ref(db, `devices/${deviceId}/contactsUpdatedAt`), timestamp);
+  const cleanId = deviceId === 'helmet-001' ? 'helmet01' : deviceId;
+  await set(ref(db, `helmets/${cleanId}/contactsUpdatedAt`), timestamp);
 }
 
 /**
@@ -199,17 +323,22 @@ export async function addEmergencyContactToFirebase(
     callEnabled: boolean;
   },
   currentCount: number
+  existingContacts: EmergencyContact[]
 ): Promise<void> {
   const db = getFirebaseDatabase();
   if (!db) throw new Error('Chưa kết nối Firebase');
 
+  const cleanId = deviceId === 'helmet-001' ? 'helmet01' : deviceId;
   const now = Date.now();
   const id = `contact_${now}`;
   const normalizedPhone = normalizeVietnamPhone(input.phone);
+  const newPriority = existingContacts.length + 1;
 
   const payload = {
+  const newContact: EmergencyContact = {
     id,
     priority: currentCount + 1,
+    priority: newPriority,
     name: input.name.trim(),
     relationship: input.relationship.trim() || 'Người thân',
     phone: normalizedPhone,
@@ -218,24 +347,35 @@ export async function addEmergencyContactToFirebase(
     updatedAt: now,
   };
 
-  await set(ref(db, `devices/${deviceId}/emergencyContacts/${id}`), payload);
-  await touchContactsVersion(deviceId, now);
+  const cleanId = deviceId === 'helmet-001' ? 'helmet01' : deviceId;
+  await set(ref(db, `helmets/${cleanId}/emergencyContacts/${id}`), payload);
+  await touchContactsVersion(cleanId, now);
+  await set(
+    ref(db, `helmets/${cleanId}/emergencyContacts/${id}`),
+    newContact
+  );
+  await syncContactsToEspDevice(cleanId, [...existingContacts, newContact]);
 }
 
 /**
  * Cập nhật thông tin người thân (Sửa hoặc Bật/Tắt nhanh SMS / Cuộc gọi)
+ * Cập nhật thông tin người thân và đồng bộ ngay xuống thiết bị
  */
 export async function updateEmergencyContactInFirebase(
   deviceId: string,
   contact: EmergencyContact
+  contact: EmergencyContact,
+  existingContacts: EmergencyContact[]
 ): Promise<void> {
   const db = getFirebaseDatabase();
   if (!db) throw new Error('Chưa kết nối Firebase');
 
+  const cleanId = deviceId === 'helmet-001' ? 'helmet01' : deviceId;
   const now = Date.now();
   const normalizedPhone = normalizeVietnamPhone(contact.phone);
 
   const payload = {
+  const updated: EmergencyContact = {
     id: contact.id,
     priority: contact.priority,
     name: contact.name.trim(),
@@ -246,15 +386,23 @@ export async function updateEmergencyContactInFirebase(
     updatedAt: now,
   };
 
+  const cleanId = deviceId === 'helmet-001' ? 'helmet01' : deviceId;
   await set(
-    ref(db, `devices/${deviceId}/emergencyContacts/${contact.id}`),
+    ref(db, `helmets/${cleanId}/emergencyContacts/${contact.id}`),
     payload
+    updated
   );
-  await touchContactsVersion(deviceId, now);
+  await touchContactsVersion(cleanId, now);
+
+  const nextList = existingContacts.map((c) =>
+    c.id === updated.id ? updated : c
+  );
+  await syncContactsToEspDevice(cleanId, nextList);
 }
 
 /**
  * Xóa người thân và tự động đánh lại thứ tự priority (1, 2, 3...) cho các mục còn lại
+ * Xóa người thân, đánh lại priority (1, 2, 3...) và cập nhật ngay xuống thiết bị
  */
 export async function deleteEmergencyContactFromFirebase(
   deviceId: string,
@@ -264,12 +412,19 @@ export async function deleteEmergencyContactFromFirebase(
   const db = getFirebaseDatabase();
   if (!db) throw new Error('Chưa kết nối Firebase');
 
+  const cleanId = deviceId === 'helmet-001' ? 'helmet01' : deviceId;
   const now = Date.now();
-  await remove(ref(db, `devices/${deviceId}/emergencyContacts/${contactId}`));
+  await remove(ref(db, `helmets/${cleanId}/emergencyContacts/${contactId}`));
 
   const remaining = existingContacts
     .filter((c) => c.id !== contactId)
     .sort((a, b) => a.priority - b.priority);
+    .sort((a, b) => a.priority - b.priority)
+    .map((c, index) => ({
+      ...c,
+      priority: index + 1,
+      updatedAt: now,
+    }));
 
   if (remaining.length > 0) {
     const updates: Record<string, unknown> = {};
@@ -279,17 +434,23 @@ export async function deleteEmergencyContactFromFirebase(
         updates[`${c.id}/priority`] = newPriority;
         updates[`${c.id}/updatedAt`] = now;
       }
+    remaining.forEach((c) => {
+      updates[`${c.id}/priority`] = c.priority;
+      updates[`${c.id}/updatedAt`] = now;
     });
     if (Object.keys(updates).length > 0) {
-      await update(ref(db, `devices/${deviceId}/emergencyContacts`), updates);
+      await update(ref(db, `helmets/${cleanId}/emergencyContacts`), updates);
     }
+    await update(ref(db, `helmets/${cleanId}/emergencyContacts`), updates);
   }
 
-  await touchContactsVersion(deviceId, now);
+  await touchContactsVersion(cleanId, now);
+  await syncContactsToEspDevice(cleanId, remaining);
 }
 
 /**
  * Đổi thứ tự ưu tiên (↑ / ↓) giữa 2 người thân và đồng bộ atomic lên Firebase
+ * Đổi thứ tự ưu tiên (↑ / ↓) giữa 2 người thân và đồng bộ ngay p1, p2... xuống thiết bị
  */
 export async function reorderEmergencyContactPriorityInFirebase(
   deviceId: string,
@@ -300,6 +461,7 @@ export async function reorderEmergencyContactPriorityInFirebase(
   const db = getFirebaseDatabase();
   if (!db) throw new Error('Chưa kết nối Firebase');
 
+  const cleanId = deviceId === 'helmet-001' ? 'helmet01' : deviceId;
   const sorted = [...existingContacts].sort((a, b) => a.priority - b.priority);
   const idx = sorted.findIndex((c) => c.id === contactId);
   if (idx === -1) return;
@@ -315,13 +477,17 @@ export async function reorderEmergencyContactPriorityInFirebase(
   const updates: Record<string, unknown> = {};
 
   sorted.forEach((c, index) => {
+  const reordered = sorted.map((c, index) => {
     const newPriority = index + 1;
     updates[`${c.id}/priority`] = newPriority;
     updates[`${c.id}/updatedAt`] = now;
+    return { ...c, priority: newPriority, updatedAt: now };
   });
 
-  await update(ref(db, `devices/${deviceId}/emergencyContacts`), updates);
-  await touchContactsVersion(deviceId, now);
+  const cleanId = deviceId === 'helmet-001' ? 'helmet01' : deviceId;
+  await update(ref(db, `helmets/${cleanId}/emergencyContacts`), updates);
+  await touchContactsVersion(cleanId, now);
+  await syncContactsToEspDevice(cleanId, reordered);
 }
 
 /**
@@ -333,9 +499,12 @@ export async function seedSampleContactsToFirebase(
   const db = getFirebaseDatabase();
   if (!db) throw new Error('Chưa kết nối Firebase');
 
+  const cleanId = deviceId === 'helmet-001' ? 'helmet01' : deviceId;
   const now = Date.now();
   const sampleData = {
     contact_1: {
+  const list: EmergencyContact[] = [
+    {
       id: 'contact_1',
       priority: 1,
       name: 'Huỳnh Minh Tuấn',
@@ -346,6 +515,7 @@ export async function seedSampleContactsToFirebase(
       updatedAt: now,
     },
     contact_2: {
+    {
       id: 'contact_2',
       priority: 2,
       name: 'Nguyễn Thị Lan',
@@ -356,6 +526,7 @@ export async function seedSampleContactsToFirebase(
       updatedAt: now,
     },
     contact_3: {
+    {
       id: 'contact_3',
       priority: 3,
       name: 'Trần Quốc Bảo',
@@ -366,7 +537,15 @@ export async function seedSampleContactsToFirebase(
       updatedAt: now,
     },
   };
+  ];
 
-  await set(ref(db, `devices/${deviceId}/emergencyContacts`), sampleData);
-  await touchContactsVersion(deviceId, now);
+  const cleanId = deviceId === 'helmet-001' ? 'helmet01' : deviceId;
+  const sampleData: Record<string, EmergencyContact> = {};
+  list.forEach((c) => {
+    sampleData[c.id] = c;
+  });
+
+  await set(ref(db, `helmets/${cleanId}/emergencyContacts`), sampleData);
+  await touchContactsVersion(cleanId, now);
+  await syncContactsToEspDevice(cleanId, list);
 }

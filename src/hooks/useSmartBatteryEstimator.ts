@@ -56,19 +56,28 @@ function calculateHardwareLoadCurrentMa(
   telemetry: FirebaseHelmetTelemetry | null,
   isStale: boolean
 ): number {
-  if (!telemetry || isStale) {
+  if (!telemetry || isStale || telemetry.deepSleep) {
     return 18;
   }
 
   let currentMa = 68;
-  if (telemetry.network?.wifiConnected) {
-    const rssi = telemetry.network.wifiRssiDbm ?? -65;
+  const wifiConnected =
+    telemetry.online === true ||
+    Boolean(telemetry.ip && telemetry.ip !== '0.0.0.0') ||
+    telemetry.network?.wifiConnected === true;
+
+  if (wifiConnected) {
+    const rssi =
+      typeof telemetry.wifiRssi === 'number'
+        ? telemetry.wifiRssi
+        : telemetry.network?.wifiRssiDbm ?? -65;
     currentMa += rssi < -75 ? 48 : 36;
   }
   if (telemetry.gps !== undefined) {
-    currentMa += telemetry.gps.fix ? 28 : 34;
+    const hasFix = telemetry.gps.valid === true || telemetry.gps.fix === true;
+    currentMa += hasFix ? 28 : 34;
   }
-  if (telemetry.mpu?.available) {
+  if (telemetry.mpu?.valid === true || telemetry.imuFault === false) {
     currentMa += 4;
   }
   return currentMa;
@@ -137,8 +146,9 @@ export function useSmartBatteryEstimator(
     lastSavedSocRef.current = nextState.soc;
     lastSavedTimeRef.current = Date.now();
 
+    const cleanId = deviceId === 'helmet-001' ? 'helmet01' : deviceId;
     try {
-      await set(ref(db, `devices/${deviceId}/batteryState`), {
+      await set(ref(db, `helmets/${cleanId}/batteryState`), {
         soc: Number(nextState.soc.toFixed(3)),
         percentage: Math.round(nextState.soc),
         voltageV: calculateLiPoVoltage(nextState.soc, nextState.isCharging),
@@ -151,14 +161,14 @@ export function useSmartBatteryEstimator(
     }
   };
 
-  // 1. Đồng bộ thời gian thực trạng thái pin từ Firebase (`devices/{deviceId}/batteryState`)
-  // Đảm bảo đăng nhập ở mọi trình duyệt / thiết bị khác đều nhận cùng một % pin
+  // 1. Đồng bộ thời gian thực trạng thái pin từ Firebase (`helmets/{deviceId}/batteryState`)
   useEffect(() => {
     if (!isFirebaseConfigured() || !authUser) return;
     const db = getFirebaseDatabase();
     if (!db) return;
 
-    const batteryRef = ref(db, `devices/${deviceId}/batteryState`);
+    const cleanId = deviceId === 'helmet-001' ? 'helmet01' : deviceId;
+    const batteryRef = ref(db, `helmets/${cleanId}/batteryState`);
 
     const unsubscribe = onValue(
       batteryRef,
@@ -208,11 +218,16 @@ export function useSmartBatteryEstimator(
     };
   }, [deviceId, authUser?.uid]);
 
-  // 2. Khi ESP32 gửi `uptimeSeconds` mới lên Firebase -> tính độ hao hụt pin và đồng bộ lên Firebase
+  // 2. Khi ESP32 gửi `uptimeS` (hoặc `uptimeSeconds`) mới lên Firebase -> tính độ hao hụt pin và đồng bộ lên Firebase
+  const liveUptimeSec =
+    typeof telemetry?.uptimeS === 'number'
+      ? telemetry.uptimeS
+      : telemetry?.device?.uptimeSeconds;
+
   useEffect(() => {
     if (!cloudLoadedRef.current) return;
 
-    const currentUptime = telemetry?.device?.uptimeSeconds;
+    const currentUptime = liveUptimeSec;
     if (typeof currentUptime !== 'number' || !Number.isFinite(currentUptime)) {
       return;
     }
@@ -255,7 +270,7 @@ export function useSmartBatteryEstimator(
 
       return nextState;
     });
-  }, [telemetry?.device?.uptimeSeconds]);
+  }, [liveUptimeSec]);
 
   // 3. Chu kỳ cập nhật định kỳ theo dòng tải thực tế và tự động lưu lên Firebase khi % pin thay đổi
   useEffect(() => {

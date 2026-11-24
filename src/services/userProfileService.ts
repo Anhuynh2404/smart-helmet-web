@@ -9,7 +9,7 @@ import {
 
 export function computeAvatarInitials(fullName: string): string {
   const words = fullName.trim().split(/\s+/).filter(Boolean);
-  if (words.length === 0) return 'SH';
+  if (words.length === 0) return 'CB';
   if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
   return (
     (words[words.length - 2][0] || '') + (words[words.length - 1][0] || '')
@@ -31,7 +31,8 @@ export function subscribeToCloudUserProfile(
     return () => {};
   }
 
-  const profileRef = ref(db, `devices/${deviceId}/profile`);
+  const cleanId = deviceId === 'helmet-001' ? 'helmet01' : deviceId;
+  const profileRef = ref(db, `helmets/${cleanId}/webProfile`);
 
   return onValue(
     profileRef,
@@ -100,7 +101,8 @@ export async function saveUserProfileToCloud(
     updatedAt: Date.now(),
   };
 
-  await set(ref(db, `devices/${deviceId}/profile`), payload);
+  const cleanId = deviceId === 'helmet-001' ? 'helmet01' : deviceId;
+  await set(ref(db, `helmets/${cleanId}/webProfile`), payload);
 
   // Đồng bộ luôn displayName lên tài khoản Auth hiện tại (nếu có)
   if (auth?.currentUser) {

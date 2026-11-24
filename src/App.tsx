@@ -52,6 +52,7 @@ export function App() {
   const targetDeviceId = DEFAULT_HELMET_DEVICE_ID;
   const {
     telemetry,
+    liveSamples,
     loading: telemetryLoading,
     error: telemetryError,
     errorCode: telemetryErrorCode,
@@ -318,7 +319,9 @@ export function App() {
   // Real or realistically estimated battery percentage
   const fbBatteryPercentage = smartBattery.percentage;
 
-  const fbWifiConnected = telemetry?.network?.wifiConnected === true;
+  const fbWifiConnected =
+    Boolean(telemetry?.ip && telemetry.ip !== '0.0.0.0') ||
+    telemetry?.network?.wifiConnected === true;
 
   const navItems: {
     id: NavTabId;
@@ -407,11 +410,11 @@ export function App() {
           <div className="flex items-center justify-between bg-[#002140] px-6 py-4">
             <div className="flex items-center gap-3">
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#1890FF] text-white font-bold text-xs shadow-xs">
-                SH
+                CB
               </div>
               <div>
                 <div className="text-[15px] font-bold text-white leading-tight tracking-tight">
-                  Smart Helmet
+                  CAS-BOX
                 </div>
                 <div className="text-[11px] text-slate-400 mt-0.5">
                   An toàn hành trình
@@ -579,6 +582,7 @@ export function App() {
               contacts={activeContacts.length > 0 ? activeContacts : fallbackContacts}
               recentEvents={events}
               telemetry={telemetry}
+              liveSamples={liveSamples}
               telemetryLoading={telemetryLoading}
               telemetryError={telemetryError}
               telemetryErrorCode={telemetryErrorCode}
@@ -612,6 +616,11 @@ export function App() {
           {activeTab === 'contacts' && (
             <EmergencyContactsView
               contacts={activeContacts}
+              espSosPhoneP1={
+                typeof telemetry?.contacts?.p1 === 'string'
+                  ? telemetry.contacts.p1
+                  : null
+              }
               loading={contactsLoading}
               saving={contactsSaving}
               error={contactsError}
@@ -619,22 +628,27 @@ export function App() {
               onAddContact={async (input) => {
                 await fbAddContact(input);
                 showToast(`Đã thêm ${input.name} lên Firebase.`);
+                showToast(`Đã thêm ${input.name} và đồng bộ xuống thiết bị.`);
               }}
               onUpdateContact={async (updated) => {
                 await fbUpdateContact(updated);
                 showToast(`Đã cập nhật ${updated.name} trên Firebase.`);
+                showToast(`Đã cập nhật ${updated.name} xuống thiết bị.`);
               }}
               onDeleteContact={async (id) => {
                 await fbDeleteContact(id);
                 showToast('Đã xóa liên hệ trên Firebase.');
+                showToast('Đã xóa liên hệ và cập nhật xuống thiết bị.');
               }}
               onReorderPriority={async (id, direction) => {
                 await fbReorderPriority(id, direction);
                 showToast('Đã cập nhật thứ tự ưu tiên trên Firebase.');
+                showToast('Đã cập nhật thứ tự ưu tiên xuống thiết bị.');
               }}
               onSeedSampleContacts={async () => {
                 await fbSeedSampleContacts();
                 showToast('Đã khởi tạo danh bạ mẫu lên Firebase.');
+                showToast('Đã khởi tạo danh bạ mẫu xuống thiết bị.');
               }}
             />
           )}

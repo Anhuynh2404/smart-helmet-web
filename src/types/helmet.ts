@@ -19,31 +19,59 @@ export type UserRole = 'OWNER' | 'EMERGENCY_CONTACT' | 'ADMIN';
 export type ConfigSyncStatus = 'SYNCED' | 'PENDING_SYNC' | 'SYNCING' | 'FAILED';
 
 /**
- * Exact Firebase Realtime Database Telemetry Interface
- * Path: devices/{deviceId}/telemetry
+ * Exact Firebase Realtime Database Schema for `/helmets/helmet01/status`
  */
-export interface FirebaseDeviceNode {
-  mode?: string;
-  uptimeSeconds?: number;
-}
-
 export interface FirebaseGpsNode {
+  // Primary fields at /helmets/helmet01/status/gps
+  lat?: number;
+  lon?: number;
+  sats?: number;
+  hdop?: number;
+  ageMs?: number;
+  valid?: boolean;
+  // Backward-compatible aliases
   fix?: boolean;
   latitude?: number;
   longitude?: number;
   satellites?: number;
-  hdop?: number;
+}
+
+export interface FirebaseVector3Node {
+  x?: number;
+  y?: number;
+  z?: number;
 }
 
 export interface FirebaseMpuNode {
+  // Primary fields at /helmets/helmet01/status/mpu
+  accel?: FirebaseVector3Node; // Gia tốc 3 trục (g)
+  gyro?: FirebaseVector3Node; // Vận tốc góc 3 trục (°/s)
+  gyroMagnitudeDps?: number; // Độ lớn vận tốc góc sau hiệu chỉnh (°/s)
+  raw?: Record<string, unknown>; // Dữ liệu cảm biến thô (x, y, z...)
+  sampleUptimeMs?: number;
+  tiltDeg?: number; // Góc nghiêng (°)
+  totalG?: number; // Tổng gia tốc (g)
+  valid?: boolean; // Trạng thái dữ liệu MPU hợp lệ
+  // Backward-compatible aliases
   available?: boolean;
-  ax?: number; // m/s^2
-  ay?: number; // m/s^2
-  az?: number; // m/s^2
-  gx?: number; // rad/s
-  gy?: number; // rad/s
-  gz?: number; // rad/s
-  totalG?: number; // G
+  ax?: number;
+  ay?: number;
+  az?: number;
+  gx?: number;
+  gy?: number;
+  gz?: number;
+}
+
+export interface FirebaseStatusContactsNode {
+  p1?: string; // Số điện thoại SOS trên ESP32
+  p2?: string;
+  p3?: string;
+  [key: string]: unknown;
+}
+
+export interface FirebaseDeviceNode {
+  mode?: string;
+  uptimeSeconds?: number;
 }
 
 export interface FirebaseNetworkNode {
@@ -63,15 +91,49 @@ export interface FirebaseButtonNode {
 }
 
 export interface FirebaseHelmetTelemetry {
+  // Primary fields at /helmets/helmet01/status
+  fw?: string | number;
+  deepSleep?: boolean;
+  imuFault?: boolean;
+  ip?: string;
+  lastSeen?: number | string;
+  configVersion?: number | string;
+  configNote?: string;
+  online?: boolean;
+  simMode?: string;
+  sosPending?: boolean;
+  syncReason?: string;
+  uptimeS?: number;
+  wifiRssi?: number;
+  gps?: FirebaseGpsNode;
+  mpu?: FirebaseMpuNode;
+  contacts?: FirebaseStatusContactsNode;
+
+  // Backward-compatible fields
   deviceId?: string;
   firmwareVersion?: string;
   updatedAt?: number | string;
   device?: FirebaseDeviceNode;
-  gps?: FirebaseGpsNode;
-  mpu?: FirebaseMpuNode;
   network?: FirebaseNetworkNode;
   battery?: FirebaseBatteryNode;
   button?: FirebaseButtonNode;
+}
+
+/**
+ * Mẫu dữ liệu thu thập trực tiếp trên trình duyệt khi Website đang mở
+ * (Phục vụ hiển thị biểu đồ theo thời gian mà không ghi đè dữ liệu ESP32)
+ */
+export interface LiveTelemetrySample {
+  timeLabel: string;
+  timestampMs: number;
+  accelTotalG: number;
+  ax: number;
+  ay: number;
+  az: number;
+  gyroMagnitudeDps: number;
+  gx: number;
+  gy: number;
+  gz: number;
 }
 
 export interface MPU6050Telemetry {
@@ -183,11 +245,10 @@ export interface EmergencyContact {
   priority: number;
   name: string;
   relationship: string;
-  phone: string; // Stored normalized without spaces on Firebase (e.g. "0909128456")
+  phone: string;
   smsEnabled: boolean;
   callEnabled: boolean;
   updatedAt: number;
-  // Backward-compatible aliases for existing UI components
   receiveSms?: boolean;
   receiveCall?: boolean;
   isVerified?: boolean;

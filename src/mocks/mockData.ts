@@ -11,10 +11,10 @@ import {
 
 export const INITIAL_DEVICE_STATE: HelmetDeviceState = {
   deviceId: 'SH-0189',
-  deviceName: 'Mũ bảo hiểm của Công An',
+  deviceName: 'CAS-BOX của Công An',
   riderName: 'Huỳnh Công An',
   firmwareVersion: '2.4.1',
-  mcuModel: 'Smart Helmet Gen 2',
+  mcuModel: 'CAS-BOX Gen 2',
   connectionStatus: 'ONLINE',
   safetyState: 'NORMAL',
   cancelCountdownSec: null,

@@ -20,8 +20,10 @@ import { FirebaseHelmetTelemetry } from '../types/helmet';
 
 export const DEFAULT_FIREBASE_DB_URL =
   'https://smart-helmet-iot-efc7e-default-rtdb.firebaseio.com';
+
+const rawEnvDeviceId = import.meta.env.VITE_HELMET_DEVICE_ID || 'helmet01';
 export const DEFAULT_HELMET_DEVICE_ID =
-  import.meta.env.VITE_HELMET_DEVICE_ID || 'helmet-001';
+  rawEnvDeviceId === 'helmet-001' ? 'helmet01' : rawEnvDeviceId;
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || '',
@@ -77,9 +79,6 @@ export function getFirebaseAuth(): Auth | null {
   return authInstance;
 }
 
-/**
- * Subscribe to Firebase Authentication user state
- */
 export function subscribeToFirebaseAuth(
   onUserChanged: (user: User | null) => void
 ): () => void {
@@ -121,9 +120,6 @@ export async function signOutFirebase() {
   return signOut(auth);
 }
 
-/**
- * Subscribe to Firebase client connection state (.info/connected)
- */
 export function subscribeToFirebaseConnectionState(
   onConnectedChange: (connected: boolean) => void
 ): () => void {
@@ -145,8 +141,8 @@ export function subscribeToFirebaseConnectionState(
 }
 
 /**
- * Subscribe to real-time telemetry from `devices/{deviceId}/telemetry`
- * Read-only listener using `onValue()`. Never writes or overwrites ESP32 data.
+ * Subscribe to real-time status from `/helmets/{deviceId}/status`
+ * Strictly Read-Only listener using `onValue()`. Never overwrites ESP32 status data.
  */
 export function subscribeToHelmetTelemetry(
   deviceId: string,
@@ -163,11 +159,12 @@ export function subscribeToHelmetTelemetry(
     return () => {};
   }
 
-  const telemetryPath = `devices/${deviceId}/telemetry`;
-  const telemetryRef = ref(db, telemetryPath);
+  const cleanId = deviceId === 'helmet-001' ? 'helmet01' : deviceId;
+  const statusPath = `helmets/${cleanId}/status`;
+  const statusRef = ref(db, statusPath);
 
   const unsubscribe = onValue(
-    telemetryRef,
+    statusRef,
     (snapshot: DataSnapshot) => {
       if (!snapshot.exists()) {
         onData(null);

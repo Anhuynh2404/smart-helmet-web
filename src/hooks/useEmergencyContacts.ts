@@ -92,7 +92,7 @@ export function useEmergencyContacts(
     setSaving(true);
     setError(null);
     try {
-      await addEmergencyContactToFirebase(deviceId, input, contacts.length);
+      await addEmergencyContactToFirebase(deviceId, input, contacts);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Lỗi khi thêm người thân';
       setError(msg);
@@ -106,7 +106,7 @@ export function useEmergencyContacts(
     setSaving(true);
     setError(null);
     try {
-      await updateEmergencyContactInFirebase(deviceId, contact);
+      await updateEmergencyContactInFirebase(deviceId, contact, contacts);
     } catch (err: unknown) {
       const msg =
         err instanceof Error ? err.message : 'Lỗi khi cập nhật người thân';

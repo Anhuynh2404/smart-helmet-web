@@ -60,7 +60,7 @@ export const DeviceSettingsView: React.FC<DeviceSettingsViewProps> = ({
       <div className="rounded-2xl border border-zinc-200/80 bg-white p-6 shadow-[0_2px_10px_rgba(0,0,0,0.02)] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex flex-wrap items-center gap-2.5">
-            <h2 className="text-base font-bold text-zinc-900">Smart Helmet của {ownerName}</h2>
+            <h2 className="text-base font-bold text-zinc-900">CAS-BOX của {ownerName}</h2>
             <span className="rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs font-mono text-zinc-700">
               Device ID: {displayDeviceId}
             </span>

@@ -25,26 +25,45 @@ export const GPSTrackingView: React.FC<GPSTrackingViewProps> = ({
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
 
-  const gpsFix = telemetry?.gps?.fix === true;
+  // Support /helmets/helmet01/status/gps (lat, lon, sats, hdop, ageMs, valid)
+  const gpsValid =
+    telemetry?.gps?.valid === true || telemetry?.gps?.fix === true;
   const lat =
-    typeof telemetry?.gps?.latitude === 'number' &&
-    Number.isFinite(telemetry.gps.latitude)
+    typeof telemetry?.gps?.lat === 'number' &&
+    Number.isFinite(telemetry.gps.lat)
+      ? telemetry.gps.lat
+      : typeof telemetry?.gps?.latitude === 'number' &&
+        Number.isFinite(telemetry.gps.latitude)
       ? telemetry.gps.latitude
       : null;
   const lng =
-    typeof telemetry?.gps?.longitude === 'number' &&
-    Number.isFinite(telemetry.gps.longitude)
+    typeof telemetry?.gps?.lon === 'number' &&
+    Number.isFinite(telemetry.gps.lon)
+      ? telemetry.gps.lon
+      : typeof telemetry?.gps?.longitude === 'number' &&
+        Number.isFinite(telemetry.gps.longitude)
       ? telemetry.gps.longitude
       : null;
 
-  const hasValidGps = gpsFix && lat !== null && lng !== null;
+  const hasValidGps =
+    gpsValid && lat !== null && lng !== null && !(lat === 0 && lng === 0);
 
   const satellites =
-    typeof telemetry?.gps?.satellites === 'number'
+    typeof telemetry?.gps?.sats === 'number'
+      ? telemetry.gps.sats
+      : typeof telemetry?.gps?.satellites === 'number'
       ? telemetry.gps.satellites
       : null;
   const hdop =
     typeof telemetry?.gps?.hdop === 'number' ? telemetry.gps.hdop : null;
+  const ageMs =
+    typeof telemetry?.gps?.ageMs === 'number' ? telemetry.gps.ageMs : null;
+
+  const formatAgeMs = (ms: number | null) => {
+    if (ms === null || !Number.isFinite(ms)) return '--';
+    if (ms < 1000) return `${ms} ms`;
+    return `${(ms / 1000).toFixed(1)} giây`;
+  };
 
   useEffect(() => {
     if (!hasValidGps || lat === null || lng === null) {
@@ -97,17 +116,17 @@ export const GPSTrackingView: React.FC<GPSTrackingViewProps> = ({
     const marker = L.marker([lat, lng], { icon: helmetIcon })
       .addTo(map)
       .bindPopup(
-        `<div style="min-width:200px">
-          <div style="font-weight:700;color:#2563EB;margin-bottom:3px">Vị trí Smart Helmet (${
+        `<div style="min-width:210px">
+          <div style="font-weight:700;color:#2563EB;margin-bottom:3px">Vị trí CAS-BOX (${
             telemetry?.deviceId || targetDeviceId
           })</div>
           <div style="font-size:12.5px;font-weight:600;color:#18181B;margin-bottom:3px">${addressTitle}</div>
-          <div style="font-size:11px;color:#52525B;font-family:monospace">${lat.toFixed(
+          <div style="font-size:11px;color:#52525B;font-family:monospace">lat: ${lat.toFixed(
             6
-          )}, ${lng.toFixed(6)}</div>
-          <div style="font-size:11px;color:#71717A;margin-top:4px">Vệ tinh: ${
+          )}, lon: ${lng.toFixed(6)}</div>
+          <div style="font-size:11px;color:#71717A;margin-top:4px">Sats: ${
             satellites ?? '--'
-          } • HDOP: ${hdop ?? '--'}</div>
+          } • HDOP: ${hdop ?? '--'} • Age: ${formatAgeMs(ageMs)}</div>
         </div>`
       );
 
@@ -119,6 +138,7 @@ export const GPSTrackingView: React.FC<GPSTrackingViewProps> = ({
     lng,
     satellites,
     hdop,
+    ageMs,
     telemetry?.deviceId,
     targetDeviceId,
     resolvedAddress,
@@ -142,21 +162,21 @@ export const GPSTrackingView: React.FC<GPSTrackingViewProps> = ({
   return (
     <div className="space-y-4">
       {/* Top GPS Status & Resolved Street Address Bar */}
-      <div className="rounded-2xl border border-zinc-200/80 bg-white p-5 shadow-[0_2px_10px_rgba(0,0,0,0.02)] flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+      <div className="rounded-lg border border-[#E8E8E8] bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,0.03)] flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div className="space-y-1">
           <div className="flex flex-wrap items-center gap-2.5">
             <span className="text-xs font-semibold text-zinc-500">
-              Định vị vệ tinh GPS ({telemetry?.deviceId || targetDeviceId})
+              Định vị vệ tinh GPS (/helmets/{targetDeviceId}/status/gps)
             </span>
             {hasValidGps ? (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 border border-emerald-300 px-2.5 py-0.5 text-xs font-semibold text-emerald-800">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-600" />
-                Đã định vị (GPS Fix)
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-[#F6FFED] border border-[#B7EB8F] px-2.5 py-0.5 text-xs font-semibold text-[#389E0D]">
+                <span className="h-1.5 w-1.5 rounded-full bg-[#52C41A]" />
+                Hợp lệ (valid: true)
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 border border-amber-300 px-2.5 py-0.5 text-xs font-semibold text-amber-800">
-                <span className="h-1.5 w-1.5 rounded-full bg-amber-600" />
-                GPS chưa có tín hiệu định vị
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-[#FFF7E6] border border-[#FFD591] px-2.5 py-0.5 text-xs font-semibold text-[#D46B08]">
+                <span className="h-1.5 w-1.5 rounded-full bg-[#FAAD14]" />
+                Chưa hợp lệ (valid: false)
               </span>
             )}
           </div>
@@ -170,18 +190,24 @@ export const GPSTrackingView: React.FC<GPSTrackingViewProps> = ({
               </h2>
               <div className="flex flex-wrap items-center gap-4 text-xs text-zinc-500">
                 <span className="font-mono text-zinc-700">
-                  Tọa độ: {lat.toFixed(6)}°N, {lng.toFixed(6)}°E
+                  lat: {lat.toFixed(6)} • lon: {lng.toFixed(6)}
                 </span>
                 <span>
-                  Số vệ tinh:{' '}
+                  Vệ tinh (sats):{' '}
                   <strong className="text-zinc-900">
                     {satellites !== null ? satellites : '--'}
                   </strong>
                 </span>
                 <span>
-                  Độ chính xác HDOP:{' '}
+                  HDOP:{' '}
                   <strong className="text-zinc-900">
                     {hdop !== null ? hdop : '--'}
+                  </strong>
+                </span>
+                <span>
+                  Tuổi dữ liệu (ageMs):{' '}
+                  <strong className="text-zinc-900">
+                    {formatAgeMs(ageMs)}
                   </strong>
                 </span>
               </div>
@@ -189,19 +215,25 @@ export const GPSTrackingView: React.FC<GPSTrackingViewProps> = ({
           ) : (
             <>
               <h2 className="text-base font-bold text-zinc-900">
-                GPS chưa có tín hiệu định vị
+                GPS chưa có tín hiệu định vị hợp lệ (valid: false)
               </h2>
               <div className="flex flex-wrap items-center gap-4 text-xs text-zinc-500">
                 <span>
-                  Số vệ tinh:{' '}
+                  Vệ tinh (sats):{' '}
                   <strong className="text-zinc-900">
                     {satellites !== null ? satellites : '--'}
                   </strong>
                 </span>
                 <span>
-                  Độ chính xác HDOP:{' '}
+                  HDOP:{' '}
                   <strong className="text-zinc-900">
                     {hdop !== null ? hdop : '--'}
+                  </strong>
+                </span>
+                <span>
+                  Tuổi dữ liệu (ageMs):{' '}
+                  <strong className="text-zinc-900">
+                    {formatAgeMs(ageMs)}
                   </strong>
                 </span>
               </div>
@@ -214,7 +246,7 @@ export const GPSTrackingView: React.FC<GPSTrackingViewProps> = ({
             <>
               <button
                 onClick={recenterMap}
-                className="inline-flex items-center gap-1.5 rounded-xl bg-zinc-900 px-3.5 py-2 text-xs font-medium text-white hover:bg-zinc-800 transition"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-[#1890FF] px-3.5 py-2 text-xs font-medium text-white hover:bg-[#40A9FF] transition"
               >
                 <LocateFixed className="h-3.5 w-3.5" />
                 Định tâm vị trí
@@ -224,7 +256,7 @@ export const GPSTrackingView: React.FC<GPSTrackingViewProps> = ({
                 href={`https://www.google.com/maps?q=${lat},${lng}`}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center gap-1 rounded-xl border border-blue-200 bg-blue-50 px-3.5 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-100 transition"
+                className="inline-flex items-center gap-1 rounded-lg border border-[#91D5FF] bg-[#E6F7FF] px-3.5 py-2 text-xs font-semibold text-[#0050B3] hover:bg-[#BAE7FF] transition"
               >
                 <span>Xem trên Google Maps</span>
                 <ArrowUpRight className="h-3.5 w-3.5" />
@@ -236,37 +268,40 @@ export const GPSTrackingView: React.FC<GPSTrackingViewProps> = ({
 
       {/* Map or No-Fix Notice */}
       {hasValidGps ? (
-        <div className="rounded-2xl border border-zinc-200/80 bg-white p-3 shadow-[0_2px_10px_rgba(0,0,0,0.02)]">
+        <div className="rounded-lg border border-[#E8E8E8] bg-white p-3 shadow-[0_1px_2px_rgba(0,0,0,0.03)]">
           <div
             ref={mapContainerRef}
-            className="h-[460px] w-full rounded-xl overflow-hidden border border-zinc-100"
+            className="h-[460px] w-full rounded-lg overflow-hidden border border-zinc-100"
           />
           <div className="mt-3 flex flex-wrap items-center justify-between gap-4 px-2 text-xs text-zinc-500">
             <span className="inline-flex items-center gap-2">
-              <span className="h-2.5 w-2.5 rounded-full bg-blue-600 inline-block" />
+              <span className="h-2.5 w-2.5 rounded-full bg-[#1890FF] inline-block" />
               {resolvedAddress
                 ? `Địa điểm: ${resolvedAddress}`
-                : 'Vị trí GPS thực tế'}
+                : 'Vị trí GPS thực tế (status/gps)'}
             </span>
             <span className="font-mono text-[11px]">
-              Satellites: {satellites ?? '--'} • HDOP: {hdop ?? '--'}
+              sats: {satellites ?? '--'} • hdop: {hdop ?? '--'} • ageMs:{' '}
+              {ageMs ?? '--'}
             </span>
           </div>
         </div>
       ) : (
-        <div className="rounded-2xl border border-zinc-200/80 bg-white p-10 text-center shadow-[0_2px_10px_rgba(0,0,0,0.02)] space-y-3">
-          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-100 text-amber-700 border border-amber-200">
+        <div className="rounded-lg border border-[#E8E8E8] bg-white p-10 text-center shadow-[0_1px_2px_rgba(0,0,0,0.03)] space-y-3">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-[#FFF7E6] text-[#D46B08] border border-[#FFD591]">
             <Satellite className="h-6 w-6" />
           </div>
           <h3 className="text-base font-bold text-zinc-900">
-            GPS chưa có tín hiệu định vị
+            GPS chưa có tín hiệu định vị hợp lệ
           </h3>
           <p className="mx-auto max-w-md text-xs text-zinc-500 leading-relaxed">
             {telemetryLoading
-              ? 'Đang tải trạng thái GPS...'
-              : 'Module GPS trên mũ bảo hiểm hiện đang báo gps.fix = false (số vệ tinh: ' +
-                (satellites ?? 0) +
-                '). Bản đồ và địa chỉ sẽ tự động hiển thị ngay khi thiết bị bắt được tín hiệu vệ tinh.'}
+              ? 'Đang tải dữ liệu từ /helmets/' + targetDeviceId + '/status/gps...'
+              : `Nhánh status/gps hiện báo valid = false (sats: ${
+                  satellites ?? 0
+                }, hdop: ${hdop ?? '--'}, ageMs: ${
+                  ageMs ?? '--'
+                }). Bản đồ sẽ tự động hiển thị ngay khi valid = true.`}
           </p>
         </div>
       )}
