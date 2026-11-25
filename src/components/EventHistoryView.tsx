@@ -26,6 +26,7 @@ interface EventHistoryViewProps {
   deviceId: string;
   realSosEvents: FirebaseSosEventRecord[];
   testSosEvents: FirebaseSosEventRecord[];
+  isServerDisconnected?: boolean;
   loading: boolean;
   resolvingId: string | null;
   error: string | null;
@@ -43,6 +44,7 @@ export const EventHistoryView: React.FC<EventHistoryViewProps> = ({
   deviceId,
   realSosEvents,
   testSosEvents,
+  isServerDisconnected = false,
   loading,
   resolvingId,
   error,
@@ -403,12 +405,14 @@ export const EventHistoryView: React.FC<EventHistoryViewProps> = ({
                     {!evt.test && !isResolved && (
                       <button
                         type="button"
-                        disabled={resolvingId === evt.id}
+                        disabled={
+                          isServerDisconnected || resolvingId === evt.id
+                        }
                         onClick={async (e) => {
                           e.stopPropagation();
                           await onResolveSos(evt.id);
                         }}
-                        className="inline-flex items-center gap-1.5 rounded-lg bg-[#52C41A] px-3 py-1.5 text-xs font-bold text-white hover:bg-[#389E0D] disabled:opacity-50 transition shadow-2xs"
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-[#52C41A] px-3 py-1.5 text-xs font-bold text-white hover:bg-[#389E0D] disabled:opacity-50 disabled:cursor-not-allowed transition shadow-2xs"
                       >
                         {resolvingId === evt.id ? (
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -649,7 +653,14 @@ export const EventHistoryView: React.FC<EventHistoryViewProps> = ({
               {!selectedEvent.test && !selectedEvent.resolved ? (
                 <button
                   type="button"
-                  disabled={resolvingId === selectedEvent.id}
+                  disabled={
+                    isServerDisconnected || resolvingId === selectedEvent.id
+                  }
+                  title={
+                    isServerDisconnected
+                      ? 'Đang mất kết nối tới máy chủ. Vui lòng chờ kết nối lại.'
+                      : undefined
+                  }
                   onClick={async () => {
                     await onResolveSos(selectedEvent.id);
                     setSelectedEvent((prev) =>
@@ -663,7 +674,7 @@ export const EventHistoryView: React.FC<EventHistoryViewProps> = ({
                         : null
                     );
                   }}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-[#52C41A] px-4 py-2 text-xs font-bold text-white hover:bg-[#389E0D] disabled:opacity-50 transition"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-[#52C41A] px-4 py-2 text-xs font-bold text-white hover:bg-[#389E0D] disabled:opacity-50 disabled:cursor-not-allowed transition"
                 >
                   {resolvingId === selectedEvent.id ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />

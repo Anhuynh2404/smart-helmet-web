@@ -29,6 +29,8 @@ import {
 interface GPSTrackingViewProps {
   telemetry: FirebaseHelmetTelemetry | null;
   gpsStatus: NormalizedGpsStatus;
+  isServerDisconnected?: boolean;
+  isStale?: boolean;
   activeEmergencySos?: FirebaseSosEventRecord | null;
   resolvingSosId?: string | null;
   onResolveSos?: (eventId: string) => Promise<void>;
@@ -192,6 +194,8 @@ function cleanTimeText(raw: string): string {
 
 export const GPSTrackingView: React.FC<GPSTrackingViewProps> = ({
   gpsStatus,
+  isServerDisconnected = false,
+  isStale = false,
   activeEmergencySos = null,
   resolvingSosId = null,
   onResolveSos,
@@ -207,6 +211,7 @@ export const GPSTrackingView: React.FC<GPSTrackingViewProps> = ({
   const mapInstanceRef = useRef<L.Map | null>(null);
 
   const isSosActive = Boolean(activeEmergencySos);
+  const isStaleOrOffline = Boolean(isServerDisconnected || isStale);
 
   const {
     rawType,
@@ -407,6 +412,14 @@ export const GPSTrackingView: React.FC<GPSTrackingViewProps> = ({
                 </span>
               )}
 
+              {isStaleOrOffline && (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-[#FFF7E6] border border-[#FFD591] px-2.5 py-0.5 text-xs font-bold text-[#D46B08]">
+                  <Clock className="h-3.5 w-3.5 text-[#FA8C16]" />
+                  Dữ liệu cũ (Offline) • Cập nhật lần cuối:{' '}
+                  {cleanTimeText(updatedAtText)}
+                </span>
+              )}
+
               {!isSosActive && rawType === 'CURRENT' && isFreshRealtime && (
                 <span className="inline-flex items-center gap-1.5 rounded-full bg-[#F6FFED] border border-[#B7EB8F] px-2.5 py-0.5 text-xs font-bold text-[#389E0D]">
                   <span className="h-1.5 w-1.5 rounded-full bg-[#52C41A]" />
@@ -495,7 +508,7 @@ export const GPSTrackingView: React.FC<GPSTrackingViewProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {/* Quick Mode Switcher on Map Tab */}
+            {/* Quick Mode Switcher on Map Tab (Disabled when server connection is lost) */}
             {allModes && onSelectMode && (
               <div className="flex flex-wrap items-center gap-1 rounded-lg border border-[#E8E8E8] bg-[#FAFAFA] p-1">
                 {allModes.map((m) => {
@@ -504,8 +517,9 @@ export const GPSTrackingView: React.FC<GPSTrackingViewProps> = ({
                     <button
                       key={m.id}
                       type="button"
+                      disabled={isServerDisconnected}
                       onClick={() => onSelectMode(m.id)}
-                      className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-semibold transition ${
+                      className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed ${
                         isSelected
                           ? 'bg-[#1890FF] text-white shadow-2xs'
                           : 'text-[#595959] hover:text-[#262626] hover:bg-white'
@@ -544,9 +558,12 @@ export const GPSTrackingView: React.FC<GPSTrackingViewProps> = ({
             {isSosActive && activeEmergencySos && onResolveSos && (
               <button
                 type="button"
-                disabled={resolvingSosId === activeEmergencySos.id}
+                disabled={
+                  isServerDisconnected ||
+                  resolvingSosId === activeEmergencySos.id
+                }
                 onClick={() => onResolveSos(activeEmergencySos.id)}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-[#52C41A] px-3.5 py-2 text-xs font-bold text-white hover:bg-[#389E0D] disabled:opacity-50 transition shadow-xs"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-[#52C41A] px-3.5 py-2 text-xs font-bold text-white hover:bg-[#389E0D] disabled:opacity-50 disabled:cursor-not-allowed transition shadow-xs"
               >
                 {resolvingSosId === activeEmergencySos.id ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -600,11 +617,11 @@ export const GPSTrackingView: React.FC<GPSTrackingViewProps> = ({
       {/* Map or Friendly Empty State */}
       {hasMapCoordinates ? (
         <div
-          className={`rounded-lg border p-3 shadow-[0_1px_2px_rgba(0,0,0,0.03)] transition-colors ${
+          className={`rounded-lg border p-3 shadow-[0_1px_2px_rgba(0,0,0,0.03)] transition-all duration-300 ${
             isSosActive
               ? 'border-2 border-[#F5222D] bg-[#FFF1F0]/40'
               : 'border-[#E8E8E8] bg-white'
-          }`}
+          } ${isStaleOrOffline && !isSosActive ? 'opacity-75' : 'opacity-100'}`}
         >
           <div
             ref={mapContainerRef}

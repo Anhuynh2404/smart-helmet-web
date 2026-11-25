@@ -17,6 +17,7 @@ interface DeviceSettingsViewProps {
   telemetry: FirebaseHelmetTelemetry | null;
   targetDeviceId: string;
   currentUserRole: UserRole;
+  isServerDisconnected?: boolean;
   onUpdateConfig: (updated: DeviceConfiguration) => void;
   onSyncToDevice: () => Promise<void>;
 }
@@ -27,11 +28,14 @@ export const DeviceSettingsView: React.FC<DeviceSettingsViewProps> = ({
   telemetry,
   targetDeviceId,
   currentUserRole,
+  isServerDisconnected = false,
   onUpdateConfig,
   onSyncToDevice,
 }) => {
   const [isSyncing, setIsSyncing] = useState(false);
-  const canEdit = currentUserRole === 'OWNER' || currentUserRole === 'ADMIN';
+  const canEdit =
+    (currentUserRole === 'OWNER' || currentUserRole === 'ADMIN') &&
+    !isServerDisconnected;
 
   const displayDeviceId = telemetry?.deviceId || targetDeviceId;
   const displayFirmware = telemetry?.firmwareVersion || '--';

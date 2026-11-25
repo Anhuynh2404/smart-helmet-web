@@ -27,6 +27,7 @@ interface EmergencyContactsViewProps {
   contacts: EmergencyContact[];
   telemetry: FirebaseHelmetTelemetry | null;
   syncComparison: ContactSyncComparison;
+  isServerDisconnected?: boolean;
   loading: boolean;
   saving: boolean;
   error: string | null;
@@ -53,6 +54,7 @@ export const EmergencyContactsView: React.FC<EmergencyContactsViewProps> = ({
   deviceId,
   contacts,
   syncComparison,
+  isServerDisconnected = false,
   loading,
   saving,
   error,
@@ -76,7 +78,9 @@ export const EmergencyContactsView: React.FC<EmergencyContactsViewProps> = ({
     null
   );
 
-  const canModify = currentUserRole === 'OWNER' || currentUserRole === 'ADMIN';
+  const canModify =
+    (currentUserRole === 'OWNER' || currentUserRole === 'ADMIN') &&
+    !isServerDisconnected;
   const sortedContacts = [...contacts].sort((a, b) => a.priority - b.priority);
 
   const openAddForm = () => {

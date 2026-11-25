@@ -5,6 +5,7 @@ import {
   Battery,
   BatteryWarning,
   Check,
+  CheckCircle2,
   Clock,
   Cpu,
   LayoutGrid,
@@ -15,6 +16,7 @@ import {
   User,
   Volume2,
   VolumeX,
+  WifiOff,
   X,
 } from 'lucide-react';
 import { AuthProfileView } from './components/AuthProfileView';
@@ -34,6 +36,7 @@ import {
   formatToVietnamTimezone,
   useHelmetTelemetry,
 } from './hooks/useHelmetTelemetry';
+import { useServerConnectionStatus } from './hooks/useServerConnectionStatus';
 import { useSmartBatteryEstimator } from './hooks/useSmartBatteryEstimator';
 import { useUserProfile } from './hooks/useUserProfile';
 import {
@@ -126,6 +129,12 @@ export function App() {
     resolvedAddress,
     addressLoading,
   } = useHelmetTelemetry(targetDeviceId);
+
+  const {
+    isServerDisconnected,
+    showReconnectedNotice,
+    dismissReconnectedNotice,
+  } = useServerConnectionStatus(firebaseConnected);
 
   // Discover all accessible devices in `/helmets` (`helmet01`, `helmet01_phase34`, etc.)
   // If any device triggers an active SOS while the current device has no active SOS, automatically switch focus to the SOS device!
@@ -478,6 +487,59 @@ return (
 
     {/* MAIN AREA */}
     <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
+      {/* SERVER / NETWORK DISCONNECTED WARNING BANNER (Error Handling Requirement 1) */}
+      {isServerDisconnected && (
+        <div
+          role="alert"
+          className="sticky top-0 z-50 shrink-0 bg-gradient-to-r from-[#D46B08] via-[#FA8C16] to-[#D46B08] text-white px-4 py-2.5 sm:px-6 shadow-[0_4px_14px_rgba(212,107,8,0.35)] border-b border-[#FFD591]"
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/20 text-white">
+                <Loader2 className="h-4 w-4 animate-spin" />
+              </div>
+              <div className="flex flex-wrap items-center gap-2 text-xs sm:text-[13px] font-bold">
+                <span>
+                  Mất kết nối tới máy chủ. Đang thử kết nối lại...
+                </span>
+                <span className="inline-flex items-center gap-1 rounded bg-black/20 px-2 py-0.5 text-[11px] font-semibold text-[#FFF7E6]">
+                  <WifiOff className="h-3 w-3" />
+                  Dữ liệu cũ (Offline) • Cập nhật lần cuối:{' '}
+                  {lastSeenVietnamText || 'Chưa ghi nhận'}
+                </span>
+              </div>
+            </div>
+            <div className="text-[11px] text-white/90 font-medium">
+              Các nút điều khiển thiết bị tạm thời bị khóa để tránh sai lệch lệnh.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AUTO-RECONNECTED GREEN BANNER (Error Handling Requirement 3) */}
+      {!isServerDisconnected && showReconnectedNotice && (
+        <div
+          role="status"
+          className="sticky top-0 z-50 shrink-0 bg-[#52C41A] text-white px-4 py-2 sm:px-6 shadow-[0_4px_12px_rgba(82,196,26,0.3)] border-b border-[#B7EB8F] flex items-center justify-between gap-3"
+        >
+          <div className="flex items-center gap-2 text-xs sm:text-[13px] font-bold">
+            <CheckCircle2 className="h-4 w-4 shrink-0" />
+            <span>Đã kết nối lại</span>
+            <span className="font-normal text-white/90 hidden sm:inline">
+              • Dữ liệu trực tuyến từ thiết bị đã được khôi phục và cập nhật mới nhất.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={dismissReconnectedNotice}
+            className="rounded p-1 text-white/80 hover:text-white hover:bg-white/15 transition"
+            aria-label="Đóng thông báo kết nối lại"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* TASK 1 & TASK 3: STICKY/FIXED RED EMERGENCY SOS ALERT BANNER AT VERY TOP OF SCREEN */}
       {activeEmergencySos && (
         <div className="sticky top-0 z-50 shrink-0 bg-gradient-to-r from-[#A8071A] via-[#F5222D] to-[#A8071A] text-white px-4 py-3 sm:px-6 shadow-[0_6px_20px_rgba(245,34,45,0.45)] border-b-2 border-[#FFA39E]">
@@ -556,11 +618,19 @@ return (
               {/* Primary Reset / Confirm Button */}
               <button
                 type="button"
-                disabled={resolvingSosId === activeEmergencySos.id}
+                disabled={
+                  isServerDisconnected ||
+                  resolvingSosId === activeEmergencySos.id
+                }
+                title={
+                  isServerDisconnected
+                    ? 'Đang mất kết nối tới máy chủ. Vui lòng chờ kết nối lại.'
+                    : undefined
+                }
                 onClick={() =>
                   handleResolveSosIncident(activeEmergencySos.id)
                 }
-                className="inline-flex items-center gap-1.5 rounded-lg bg-white px-4 py-2 text-xs font-extrabold text-[#CF1322] hover:bg-[#FFF1F0] disabled:opacity-60 transition shadow-md"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-white px-4 py-2 text-xs font-extrabold text-[#CF1322] hover:bg-[#FFF1F0] disabled:opacity-60 disabled:cursor-not-allowed transition shadow-md"
               >
                 {resolvingSosId === activeEmergencySos.id ? (
                   <Loader2 className="h-4 w-4 animate-spin text-[#CF1322]" />
@@ -644,28 +714,34 @@ return (
               </span>
               <span className="text-slate-300">|</span>
               <span
-                className={`h-2 w-2 rounded-full ${telemetry && !isStale
-                    ? 'bg-[#52C41A]'
-                    : telemetry && isStale
-                      ? 'bg-[#F5222D]'
-                      : 'bg-slate-400'
+                className={`h-2 w-2 rounded-full ${isServerDisconnected
+                    ? 'bg-[#FA8C16] animate-pulse'
+                    : telemetry && !isStale
+                      ? 'bg-[#52C41A]'
+                      : telemetry && isStale
+                        ? 'bg-[#F5222D]'
+                        : 'bg-slate-400'
                   }`}
               />
               <span
-                className={`font-semibold ${telemetry && isStale
-                    ? 'text-[#CF1322]'
-                    : telemetry && !isStale
-                      ? 'text-[#389E0D]'
-                      : 'text-[#595959]'
+                className={`font-semibold ${isServerDisconnected
+                    ? 'text-[#D46B08]'
+                    : telemetry && isStale
+                      ? 'text-[#CF1322]'
+                      : telemetry && !isStale
+                        ? 'text-[#389E0D]'
+                        : 'text-[#595959]'
                   }`}
               >
-                {telemetryLoading
-                  ? 'Đang kết nối...'
-                  : !telemetry
-                    ? 'Chưa có tín hiệu'
-                    : isStale
-                      ? 'Ngoại tuyến'
-                      : 'Đang trực tuyến'}
+                {isServerDisconnected
+                  ? 'Mất kết nối máy chủ'
+                  : telemetryLoading
+                    ? 'Đang kết nối...'
+                    : !telemetry
+                      ? 'Chưa có tín hiệu'
+                      : isStale
+                        ? 'Ngoại tuyến'
+                        : 'Đang trực tuyến'}
               </span>
               <span className="text-slate-300">|</span>
               <span
@@ -736,6 +812,7 @@ return (
             telemetryError={telemetryError}
             telemetryErrorCode={telemetryErrorCode}
             firebaseConnected={firebaseConnected}
+            isServerDisconnected={isServerDisconnected}
             isStale={isStale}
             secondsSinceUpdate={secondsSinceUpdate}
             lastUpdatedDate={lastUpdatedDate}
@@ -769,6 +846,8 @@ return (
             resolvingSosId={resolvingSosId}
             onResolveSos={handleResolveSosIncident}
             telemetryLoading={telemetryLoading}
+            isServerDisconnected={isServerDisconnected}
+            isStale={isStale}
             targetDeviceId={targetDeviceId}
             resolvedAddress={resolvedAddress}
             addressLoading={addressLoading}
@@ -790,6 +869,7 @@ return (
             testSosEvents={testSosEvents}
             loading={sosEventsLoading}
             resolvingId={resolvingSosId}
+            isServerDisconnected={isServerDisconnected}
             error={sosEventsError}
             onResolveSos={handleResolveSosIncident}
           />
@@ -803,6 +883,7 @@ return (
             syncComparison={contactSyncComparison}
             loading={contactsLoading}
             saving={contactsSaving}
+            isServerDisconnected={isServerDisconnected}
             error={contactsError}
             currentUserRole={currentUser.role}
             onAddContact={async (input) => {
@@ -840,6 +921,7 @@ return (
             telemetry={telemetry}
             targetDeviceId={targetDeviceId}
             currentUserRole={currentUser.role}
+            isServerDisconnected={isServerDisconnected}
             onUpdateConfig={setConfig}
             onSyncToDevice={handleSyncConfigToEsp32}
           />

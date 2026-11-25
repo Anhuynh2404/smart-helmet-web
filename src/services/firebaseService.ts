@@ -13,6 +13,7 @@ import {
   Database,
   DataSnapshot,
   getDatabase,
+  goOnline,
   onValue,
   ref,
 } from 'firebase/database';
@@ -151,6 +152,20 @@ export function subscribeToFirebaseConnectionState(
       onConnectedChange(false);
     }
   );
+}
+
+/**
+ * Chủ động kích hoạt kết nối lại Firebase Realtime Database khi mạng khôi phục
+ */
+export function reconnectFirebaseDatabase(): void {
+  try {
+    const db = getFirebaseDatabase();
+    if (db) {
+      goOnline(db);
+    }
+  } catch {
+    // Ignore reconnect trigger error
+  }
 }
 
 function buildDeviceSummary(

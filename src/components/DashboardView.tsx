@@ -68,6 +68,7 @@ interface DashboardViewProps {
   telemetryError: string | null;
   telemetryErrorCode: TelemetryErrorCode;
   firebaseConnected: boolean;
+  isServerDisconnected?: boolean;
   isStale: boolean;
   secondsSinceUpdate: number | null;
   lastUpdatedDate: Date | null;
@@ -153,6 +154,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   telemetryLoading,
   telemetryError,
   telemetryErrorCode,
+  isServerDisconnected = false,
   isStale,
   secondsSinceUpdate,
   lastSeenVietnamText,
@@ -308,7 +310,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       : null;
   const deviceIp = telemetry?.ip ? String(telemetry.ip) : null;
 
-  const isActuallyOnline = Boolean(telemetry) && !isStale;
+  const isActuallyOnline =
+    Boolean(telemetry) && !isStale && !isServerDisconnected;
+  const isStaleOrDisconnected = Boolean(isServerDisconnected || isStale);
   const hasNetworkConnection =
     isActuallyOnline &&
     (rawOnlineFlag ||
@@ -430,11 +434,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </span>
       );
     }
-    if (isStale) {
+    if (isServerDisconnected || isStale) {
       return (
-        <span className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-[#FFF1F0] px-2.5 py-0.5 text-[11px] font-semibold text-[#CF1322] border border-[#FFA39E]">
-          <span className="h-1.5 w-1.5 rounded-full bg-[#F5222D]" />
-          Ngoại tuyến
+        <span className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-[#FFF7E6] px-2.5 py-0.5 text-[11px] font-semibold text-[#D46B08] border border-[#FFD591]">
+          <span className="h-1.5 w-1.5 rounded-full bg-[#FAAD14]" />
+          Dữ liệu cũ (Offline)
         </span>
       );
     }
@@ -511,9 +515,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
               <button
                 type="button"
-                disabled={resolvingSosId === activeEmergencySos.id}
+                disabled={
+                  isServerDisconnected ||
+                  resolvingSosId === activeEmergencySos.id
+                }
                 onClick={() => onResolveSos(activeEmergencySos.id)}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-[#52C41A] px-4 py-2 text-xs font-bold text-white hover:bg-[#389E0D] disabled:opacity-50 transition shadow-xs"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-[#52C41A] px-4 py-2 text-xs font-bold text-white hover:bg-[#389E0D] disabled:opacity-50 disabled:cursor-not-allowed transition shadow-xs"
               >
                 {resolvingSosId === activeEmergencySos.id ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -639,29 +646,34 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       )}
 
-      {/* OFFLINE NOTICE (Human-readable) */}
-      {!telemetryLoading && telemetry && isStale && (
+      {/* STALE DATA NOTICE (When Device is Offline or Server Connection Lost) */}
+      {!telemetryLoading && telemetry && isStaleOrDisconnected && (
         <div className="rounded-lg border border-[#FFD591] bg-[#FFF7E6] px-4 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-[#AD4E00]">
           <div className="flex items-center gap-3">
             <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[#FA8C16] text-white">
               <Clock className="h-3.5 w-3.5" />
             </div>
             <span>
-              <strong className="font-bold">
-                Thiết bị hiện đang nghỉ hoặc ngoại tuyến:
-              </strong>{' '}
-              Chưa nhận được tín hiệu mới từ thiết bị trong{' '}
-              <strong>{formatFriendlyDuration(secondsSinceUpdate)}</strong> qua.
+              <strong className="font-bold">Dữ liệu cũ (Offline):</strong>{' '}
+              {isServerDisconnected
+                ? 'Đang mất kết nối tới máy chủ. Các thông số cảm biến và bản đồ bên dưới là dữ liệu lưu cuối cùng, không phải dữ liệu thời gian thực.'
+                : `Thiết bị chưa gửi tín hiệu mới trong ${formatFriendlyDuration(
+                    secondsSinceUpdate
+                  )} qua. Các thông số bên dưới là dữ liệu cũ từ lần kết nối gần nhất.`}
             </span>
           </div>
           <span className="font-semibold text-[#873800] shrink-0">
-            Kết nối gần nhất: {formatLastSeen()}
+            Cập nhật lần cuối (Last updated): {formatLastSeen()}
           </span>
         </div>
       )}
 
-      {/* TOP 4 METRIC CARDS */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      {/* TOP 4 METRIC CARDS (Dimmed with subtle opacity when Stale / Offline) */}
+      <div
+        className={`grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4 transition-opacity duration-300 ${
+          isStaleOrDisconnected ? 'opacity-80' : 'opacity-100'
+        }`}
+      >
         {/* Card 1: Thiết bị & Trạng thái */}
         <div className="rounded-lg border border-[#E8E8E8] bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,0.03)] flex flex-col justify-between">
           <div>
@@ -973,14 +985,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       </div>
 
-      {/* LIVE DASHBOARD MAP WITH PULSING RED SOS MARKER */}
+      {/* LIVE DASHBOARD MAP WITH PULSING RED SOS MARKER & STALE DATA OVERLAY */}
       {hasDashboardMapCoords && (
         <div
-          className={`rounded-lg border p-4 shadow-[0_1px_2px_rgba(0,0,0,0.03)] space-y-3 transition-colors ${
+          className={`rounded-lg border p-4 shadow-[0_1px_2px_rgba(0,0,0,0.03)] space-y-3 transition-all duration-300 ${
             isSosActive
               ? 'border-2 border-[#F5222D] bg-[#FFF1F0]/45'
               : 'border-[#E8E8E8] bg-white'
-          }`}
+          } ${isStaleOrDisconnected && !isSosActive ? 'opacity-80' : ''}`}
         >
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div className="flex flex-wrap items-center gap-2">
@@ -990,15 +1002,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 }`}
               />
               <h3 className="text-sm font-bold text-[#262626]">
-                Bản đồ vị trí thiết bị trực tiếp
+                Bản đồ vị trí thiết bị
               </h3>
               {isSosActive ? (
                 <span className="inline-flex items-center gap-1.5 rounded-full bg-[#F5222D] px-2.5 py-0.5 text-[11px] font-extrabold text-white animate-pulse">
                   ● MARKER ĐỎ NHẤP NHÁY — ĐANG PHÁT TÍN HIỆU SOS
                 </span>
+              ) : isStaleOrDisconnected ? (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-[#FFF7E6] border border-[#FFD591] px-2.5 py-0.5 text-[11px] font-bold text-[#D46B08]">
+                  ● Dữ liệu cũ (Offline) • Cập nhật lần cuối: {formatLastSeen()}
+                </span>
               ) : (
                 <span className="inline-flex items-center gap-1.5 rounded-full bg-[#F6FFED] border border-[#B7EB8F] px-2.5 py-0.5 text-[11px] font-semibold text-[#389E0D]">
-                  ● Trạng thái bình thường ({activeModeProfile.label})
+                  ● Trạng thái trực tiếp ({activeModeProfile.label})
                 </span>
               )}
             </div>
@@ -1069,7 +1085,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           <div className="flex items-center gap-2 self-start sm:self-auto">
-            {modeSyncState === 'SYNCING' ? (
+            {isServerDisconnected ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-[#FFF1F0] border border-[#FFA39E] px-3 py-1 text-xs font-semibold text-[#CF1322]">
+                <WifiOff className="h-3.5 w-3.5" />
+                <span>Tạm khóa điều khiển (Mất kết nối máy chủ)</span>
+              </span>
+            ) : modeSyncState === 'SYNCING' ? (
               <span className="inline-flex items-center gap-1.5 rounded-full bg-[#E6F7FF] border border-[#91D5FF] px-3 py-1 text-xs font-semibold text-[#0050B3]">
                 <Loader2 className="h-3.5 w-3.5 animate-spin text-[#1890FF]" />
                 <span>Đang đồng bộ xuống thiết bị...</span>
@@ -1088,7 +1109,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         </div>
 
-        {/* 4 Mode Buttons: Mũ bảo hiểm, Xe lăn, Xe máy, Balo */}
+        {/* 4 Mode Buttons: Disabled when server connection is lost */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {allModes.map((m) => {
             const isSelected = m.id === activeModeProfile.id;
@@ -1096,8 +1117,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <button
                 key={m.id}
                 type="button"
+                disabled={isServerDisconnected}
                 onClick={() => onSelectMode(m.id)}
-                className={`group text-left rounded-lg border p-3.5 transition-all flex flex-col justify-between ${
+                className={`group text-left rounded-lg border p-3.5 transition-all flex flex-col justify-between disabled:opacity-50 disabled:cursor-not-allowed ${
                   isSelected
                     ? 'border-[#1890FF] bg-[#E6F7FF]/45 shadow-[0_0_0_2px_rgba(24,144,255,0.14)]'
                     : 'border-[#E8E8E8] bg-[#FAFAFA] hover:border-[#91D5FF] hover:bg-white'
@@ -1158,8 +1180,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       </div>
 
-      {/* MIDDLE SECTION: HUMAN-READABLE MOTION & SAFETY STATUS */}
-      <div className="rounded-lg border border-[#E8E8E8] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.03)]">
+      {/* MIDDLE SECTION: HUMAN-READABLE MOTION & SAFETY STATUS (With Stale Data Dimming & Offline Badge) */}
+      <div
+        className={`rounded-lg border border-[#E8E8E8] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.03)] transition-opacity duration-300 ${
+          isStaleOrDisconnected ? 'opacity-75' : 'opacity-100'
+        }`}
+      >
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-6 pt-3.5 pb-0 border-b border-[#F0F0F0]">
           <div className="border-b-2 border-[#1890FF] pb-3 text-sm font-semibold text-[#1890FF] flex items-center gap-2">
             <Activity className="h-4 w-4" />
@@ -1167,6 +1193,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2 pb-2.5">
+            {isStaleOrDisconnected && (
+              <span className="inline-flex items-center gap-1.5 rounded bg-[#FFF7E6] border border-[#FFD591] px-2.5 py-1 text-xs font-bold text-[#D46B08]">
+                <Clock className="h-3.5 w-3.5 text-[#FA8C16]" />
+                Dữ liệu cũ (Offline) • Cập nhật cuối: {formatLastSeen()}
+              </span>
+            )}
+
             {sosPending && (
               <span className="inline-flex items-center gap-1.5 rounded bg-[#FFF1F0] text-[#CF1322] border border-[#FFA39E] px-2.5 py-1 text-xs font-semibold">
                 Đang có cảnh báo chờ gửi
