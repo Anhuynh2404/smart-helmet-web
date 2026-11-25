@@ -1,0 +1,34 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "helmets": {
+      ".read": "auth != null",
+      "$deviceId": {
+        ".read": "auth != null && (root.child('deviceAccess').child($deviceId).child(auth.uid).val() === true || !root.child('deviceAccess').child($deviceId).exists())",
+        ".write": "auth != null && (root.child('deviceAccess').child($deviceId).child(auth.uid).val() === true || !root.child('deviceAccess').child($deviceId).exists())",
+        "status": {
+          ".validate": "newData.hasChildren()"
+        },
+        "sos": {
+          ".validate": "newData.hasChildren(['id', 'type'])"
+        },
+        "events": {
+          "$eventId": {
+            ".validate": "newData.hasChildren(['id', 'type'])"
+          }
+        },
+        "testEvents": {
+          "$eventId": {
+            ".validate": "newData.hasChildren(['id', 'type']) && newData.child('test').val() === true"
+          }
+        },
+        "emergencyContacts": {
+          "$contactId": {
+            ".validate": "newData.hasChildren(['id', 'name', 'phone', 'priority', 'smsEnabled', 'callEnabled'])"
+          }
+        }
+      }
+    }
+  }
+}

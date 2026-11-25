@@ -1,16 +1,17 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
+  AlertOctagon,
+  ArrowUpRight,
   Battery,
   BatteryWarning,
-  ChevronDown,
+  Check,
   Clock,
-  FlaskConical,
+  Cpu,
   LayoutGrid,
   Loader2,
   MapPin,
   Menu,
   Phone,
-  SlidersHorizontal,
   User,
   X,
 } from 'lucide-react';
@@ -21,37 +22,91 @@ import { EmergencyContactsView } from './components/EmergencyContactsView';
 import { EventHistoryView } from './components/EventHistoryView';
 import { GPSTrackingView } from './components/GPSTrackingView';
 import { LoginGateView } from './components/LoginGateView';
+import { useDeviceModeConfig } from './hooks/useDeviceModeConfig';
 import { useEmergencyContacts } from './hooks/useEmergencyContacts';
-import { useHelmetTelemetry } from './hooks/useHelmetTelemetry';
+import { useHelmetSosEvents } from './hooks/useHelmetSosEvents';
+import {
+  formatToVietnamTimezone,
+  useHelmetTelemetry,
+} from './hooks/useHelmetTelemetry';
 import { useSmartBatteryEstimator } from './hooks/useSmartBatteryEstimator';
 import { useUserProfile } from './hooks/useUserProfile';
 import {
   INITIAL_DEVICE_CONFIG,
   INITIAL_DEVICE_STATE,
-  INITIAL_EMERGENCY_CONTACTS,
-  INITIAL_EVENT_LOGS,
   MOCK_USERS,
 } from './mocks/mockData';
-import { DEFAULT_HELMET_DEVICE_ID } from './services/firebaseService';
+import {
+  DEFAULT_HELMET_DEVICE_ID,
+  KNOWN_DEFAULT_DEVICES,
+  normalizeDeviceId,
+  subscribeToAccessibleDevices,
+} from './services/firebaseService';
 import { helmetApiService } from './services/helmetApiService';
 import {
   DeviceConfiguration,
-  EmergencyContact,
+  FirebaseSosEventRecord,
   HelmetDeviceState,
-  HelmetEventLog,
+  HelmetDeviceSummary,
   UserProfile,
 } from './types/helmet';
 
-type NavTabId = 'dashboard' | 'gps' | 'events' | 'contacts' | 'settings' | 'auth';
+type NavTabId =
+  | 'dashboard'
+  | 'gps'
+  | 'events'
+  | 'contacts'
+  | 'settings'
+  | 'auth';
+
+const SELECTED_DEVICE_STORAGE_KEY = 'casbox_selected_device_id_v1';
+
+function getInitialSelectedDeviceId(): string {
+  try {
+    const saved = localStorage.getItem(SELECTED_DEVICE_STORAGE_KEY);
+    if (saved && saved.trim() !== '') {
+      return normalizeDeviceId(saved);
+    }
+  } catch {
+    // Ignore storage error
+  }
+  return DEFAULT_HELMET_DEVICE_ID;
+}
 
 export function App() {
   const [activeTab, setActiveTab] = useState<NavTabId>('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [demoMenuOpen, setDemoMenuOpen] = useState(false);
 
-  const targetDeviceId = DEFAULT_HELMET_DEVICE_ID;
+  // Requirement 1: Multi-device support (Dynamic Device ID & Accessible Devices discovery)
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string>(
+    getInitialSelectedDeviceId
+  );
+  const [availableDevices, setAvailableDevices] = useState<
+    HelmetDeviceSummary[]
+  >(() =>
+    KNOWN_DEFAULT_DEVICES.map((id) => ({
+      deviceId: id,
+      fw: '--',
+      hasActiveSos: false,
+      activeSosId: null,
+    }))
+  );
+
+  const handleSelectDevice = useCallback((nextDeviceId: string) => {
+    const clean = normalizeDeviceId(nextDeviceId);
+    setSelectedDeviceId(clean);
+    try {
+      localStorage.setItem(SELECTED_DEVICE_STORAGE_KEY, clean);
+    } catch {
+      // Ignore storage error
+    }
+  }, []);
+
+  const targetDeviceId = selectedDeviceId;
+
   const {
     telemetry,
+    gpsStatus,
     liveSamples,
     loading: telemetryLoading,
     error: telemetryError,
@@ -60,11 +115,72 @@ export function App() {
     isStale,
     secondsSinceUpdate,
     lastUpdatedDate,
+    lastSeenVietnamText,
     authUser: firebaseAuthUser,
     authLoading,
     resolvedAddress,
     addressLoading,
   } = useHelmetTelemetry(targetDeviceId);
+
+  // Discover all accessible devices in `/helmets` (`helmet01`, `helmet01_phase34`, etc.)
+  useEffect(() => {
+    if (!firebaseAuthUser) return;
+    const unsub = subscribeToAccessibleDevices(
+      [selectedDeviceId, ...KNOWN_DEFAULT_DEVICES],
+      (devices) => {
+        if (devices.length > 0) {
+          setAvailableDevices(devices);
+        }
+      }
+    );
+    return () => unsub();
+  }, [firebaseAuthUser, selectedDeviceId]);
+
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const showToast = useCallback((msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => {
+      setToastMessage((prev) => (prev === msg ? null : prev));
+    }, 4500);
+  }, []);
+
+  // Requirement 2, 3, 4, 7: Realtime SOS listener, deduplicated notification, event history & testEvents isolation
+  const handleNewEmergencySosDetected = useCallback(
+    (sos: FirebaseSosEventRecord) => {
+      showToast(
+        `[KHẨN CẤP] Phát hiện tín hiệu SOS mới (#${sos.id}) trên thiết bị ${sos.deviceId}!`
+      );
+    },
+    [showToast]
+  );
+
+  const {
+    activeEmergencySos,
+    realSosEvents,
+    testSosEvents,
+    loading: sosEventsLoading,
+    resolvingId: resolvingSosId,
+    error: sosEventsError,
+    resolveSos,
+  } = useHelmetSosEvents(
+    targetDeviceId,
+    firebaseAuthUser,
+    handleNewEmergencySosDetected
+  );
+
+  const {
+    activeModeProfile,
+    allModes,
+    configVersion: modeConfigVersion,
+    syncState: modeSyncState,
+    selectMode: handleSelectOperatingMode,
+  } = useDeviceModeConfig(
+    targetDeviceId,
+    telemetry,
+    isStale,
+    firebaseAuthUser
+  );
 
   const smartBattery = useSmartBatteryEstimator(
     telemetry,
@@ -75,6 +191,7 @@ export function App() {
 
   const {
     contacts: firebaseContacts,
+    syncComparison: contactSyncComparison,
     loading: contactsLoading,
     saving: contactsSaving,
     error: contactsError,
@@ -83,7 +200,8 @@ export function App() {
     deleteContact: fbDeleteContact,
     reorderPriority: fbReorderPriority,
     seedSampleContacts: fbSeedSampleContacts,
-  } = useEmergencyContacts(targetDeviceId, firebaseAuthUser);
+    forceResyncContactsConfig: fbForceResyncContacts,
+  } = useEmergencyContacts(targetDeviceId, firebaseAuthUser, telemetry);
 
   const {
     profile: currentUser,
@@ -95,206 +213,41 @@ export function App() {
   } = useUserProfile(targetDeviceId, firebaseAuthUser);
 
   const [device, setDevice] = useState<HelmetDeviceState>(INITIAL_DEVICE_STATE);
-  const [config, setConfig] = useState<DeviceConfiguration>(INITIAL_DEVICE_CONFIG);
-  const [events, setEvents] = useState<HelmetEventLog[]>(INITIAL_EVENT_LOGS);
-  const [fallbackContacts] = useState<EmergencyContact[]>(INITIAL_EMERGENCY_CONTACTS);
-
-  // Use real-time Firebase contacts; if empty on Dashboard while not yet seeded, show live list
-  const activeContacts = firebaseContacts;
-
+  const [config, setConfig] = useState<DeviceConfiguration>(
+    INITIAL_DEVICE_CONFIG
+  );
   const [users, setUsers] = useState<UserProfile[]>(MOCK_USERS);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
-
-  const showToast = (msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => {
-      setToastMessage((prev) => (prev === msg ? null : prev));
-    }, 3800);
-  };
 
   useEffect(() => {
     helmetApiService.fetchInitialDashboardData().then((data) => {
       setDevice(data.device);
-      setEvents(data.events);
       setConfig(data.config);
       setUsers(data.users);
     });
   }, []);
 
-  // Cancel Window 10-15s Countdown (for manual demo scenario testing)
-  useEffect(() => {
-    if (device.safetyState !== 'WARNING_CANCEL_WINDOW' || device.cancelCountdownSec === null) {
-      return;
-    }
-
-    if (device.cancelCountdownSec <= 0) {
-      handleTriggerImmediateSOS();
-      return;
-    }
-
-    const timer = setTimeout(() => {
-      setDevice((prev) => ({
-        ...prev,
-        cancelCountdownSec:
-          prev.cancelCountdownSec !== null ? prev.cancelCountdownSec - 1 : null,
-      }));
-    }, 1000);
-
-    return () => clearTimeout(timer);
-  }, [device.safetyState, device.cancelCountdownSec]);
-
-  const handleTriggerImpactWarning = () => {
-    const impactG = Number((config.impactThresholdG + 1.1).toFixed(1));
-    const tiltDeg = Number((config.fallAngleThresholdDeg + 8).toFixed(0));
-    const nowIso = new Date().toISOString();
-
-    setDevice((prev) => ({
-      ...prev,
-      connectionStatus: 'ONLINE',
-      safetyState: 'WARNING_CANCEL_WINDOW',
-      cancelCountdownSec: config.cancelWindowSeconds,
-      buzzerActive: config.buzzerEnabled,
-      ledAlertActive: config.ledStrobeEnabled,
-      lastHeartbeatAt: nowIso,
-      imu: {
-        ...prev.imu,
-        totalGForce: impactG,
-        pitch: tiltDeg,
-        roll: -60,
-        postureState: 'TILTED',
-      },
-    }));
-
-    const newEvt: HelmetEventLog = {
-      id: `${Date.now()}`,
-      deviceId: telemetry?.deviceId || targetDeviceId,
-      type: 'IMPACT_DETECTED',
-      severity: 'WARNING',
-      title: 'Phát hiện va chạm mạnh',
-      description: `Mũ bị nghiêng ${tiltDeg}° và chịu va chạm. Đang chờ người đội xác nhận trong ${config.cancelWindowSeconds} giây.`,
-      timestamp: nowIso,
-      latitude: telemetry?.gps?.latitude ?? device.gps.latitude,
-      longitude: telemetry?.gps?.longitude ?? device.gps.longitude,
-      locationName: device.gps.addressLabel,
-      sensorSnapshot: {
-        gForce: impactG,
-        pitch: tiltDeg,
-        roll: -60,
-        batteryPercent: telemetry?.battery?.percentage ?? 0,
-        voltageV: telemetry?.battery?.voltage ?? 0,
-        speedKmh: 0,
-      },
-    };
-    setEvents((prev) => [newEvt, ...prev]);
-    setDemoMenuOpen(false);
-    showToast(`Đang đếm ngược ${config.cancelWindowSeconds} giây chờ hủy cảnh báo.`);
-  };
-
   const handleCancelByButton = () => {
-    const nowIso = new Date().toISOString();
     setDevice((prev) => ({
       ...prev,
       safetyState: 'NORMAL',
       cancelCountdownSec: null,
       buzzerActive: false,
       ledAlertActive: false,
-      lastHeartbeatAt: nowIso,
+      lastHeartbeatAt: new Date().toISOString(),
     }));
-
-    const cancelEvt: HelmetEventLog = {
-      id: `${Date.now()}`,
-      deviceId: telemetry?.deviceId || targetDeviceId,
-      type: 'BUTTON_CANCELLED',
-      severity: 'INFO',
-      title: 'Đã hủy cảnh báo qua nút bấm trên mũ',
-      description: 'Người đội đã nhấn nút hủy cảnh báo và xác nhận an toàn.',
-      timestamp: nowIso,
-      latitude: telemetry?.gps?.latitude ?? device.gps.latitude,
-      longitude: telemetry?.gps?.longitude ?? device.gps.longitude,
-      locationName: device.gps.addressLabel,
-      sensorSnapshot: {
-        gForce: telemetry?.mpu?.totalG ?? 1.0,
-        pitch: 5,
-        roll: -1,
-        batteryPercent: telemetry?.battery?.percentage ?? 0,
-        voltageV: telemetry?.battery?.voltage ?? 0,
-        speedKmh: 0,
-      },
-    };
-    setEvents((prev) => [cancelEvt, ...prev]);
     showToast('Đã hủy cảnh báo qua nút bấm trên mũ.');
   };
 
   const handleCancelByPosture = () => {
-    const nowIso = new Date().toISOString();
     setDevice((prev) => ({
       ...prev,
       safetyState: 'NORMAL',
       cancelCountdownSec: null,
       buzzerActive: false,
       ledAlertActive: false,
-      lastHeartbeatAt: nowIso,
+      lastHeartbeatAt: new Date().toISOString(),
     }));
-
-    const postureEvt: HelmetEventLog = {
-      id: `${Date.now()}`,
-      deviceId: telemetry?.deviceId || targetDeviceId,
-      type: 'AUTO_CANCELLED_POSTURE',
-      severity: 'INFO',
-      title: 'Tự tắt cảnh báo khi dựng thẳng mũ',
-      description: 'Mũ đã trở lại tư thế thẳng đứng ổn định.',
-      timestamp: nowIso,
-      latitude: telemetry?.gps?.latitude ?? device.gps.latitude,
-      longitude: telemetry?.gps?.longitude ?? device.gps.longitude,
-      locationName: device.gps.addressLabel,
-      sensorSnapshot: {
-        gForce: telemetry?.mpu?.totalG ?? 1.0,
-        pitch: 4,
-        roll: -1,
-        batteryPercent: telemetry?.battery?.percentage ?? 0,
-        voltageV: telemetry?.battery?.voltage ?? 0,
-        speedKmh: 0,
-      },
-    };
-    setEvents((prev) => [postureEvt, ...prev]);
     showToast('Mũ đã đứng thẳng trở lại, tự động tắt cảnh báo.');
-  };
-
-  const handleTriggerImmediateSOS = () => {
-    const nowIso = new Date().toISOString();
-    setDevice((prev) => ({
-      ...prev,
-      safetyState: 'EMERGENCY_SOS',
-      cancelCountdownSec: null,
-      buzzerActive: true,
-      ledAlertActive: true,
-      lastHeartbeatAt: nowIso,
-    }));
-
-    const sosEvent: HelmetEventLog = {
-      id: `${Date.now()}`,
-      deviceId: telemetry?.deviceId || targetDeviceId,
-      type: 'SOS_ACTIVATED',
-      severity: 'CRITICAL',
-      title: 'Đã gửi tín hiệu khẩn cấp SOS',
-      description: 'Kích hoạt cảnh báo khẩn cấp SOS.',
-      timestamp: nowIso,
-      latitude: telemetry?.gps?.latitude ?? device.gps.latitude,
-      longitude: telemetry?.gps?.longitude ?? device.gps.longitude,
-      locationName: device.gps.addressLabel,
-      sensorSnapshot: {
-        gForce: telemetry?.mpu?.totalG ?? 4.9,
-        pitch: 79,
-        roll: -72,
-        batteryPercent: telemetry?.battery?.percentage ?? 0,
-        voltageV: telemetry?.battery?.voltage ?? 0,
-        speedKmh: 0,
-      },
-    };
-
-    setEvents((prev) => [sosEvent, ...prev]);
-    setDemoMenuOpen(false);
-    showToast('Đã kích hoạt tín hiệu khẩn cấp SOS!');
   };
 
   const handleResetNormalState = () => {
@@ -306,27 +259,34 @@ export function App() {
       ledAlertActive: false,
       lastHeartbeatAt: new Date().toISOString(),
     }));
-    setDemoMenuOpen(false);
     showToast('Đã đưa thiết bị về trạng thái hoạt động bình thường.');
   };
 
   const handleSyncConfigToEsp32 = async () => {
     const synced = await helmetApiService.syncConfigWithEsp32(config);
     setConfig(synced);
-    showToast('Đã đồng bộ cài đặt mới lên mũ bảo hiểm.');
+    showToast('Đã đồng bộ cài đặt mới lên thiết bị.');
   };
 
-  // Real or realistically estimated battery percentage
+  const handleResolveSosIncident = async (eventId: string) => {
+    await resolveSos(eventId, currentUser.fullName);
+    showToast(
+      `Đã xác nhận xử lý SOS #${eventId} trên thiết bị ${targetDeviceId} (active=false, resolved=true).`
+    );
+  };
+
   const fbBatteryPercentage = smartBattery.percentage;
 
-  const fbWifiConnected =
-    Boolean(telemetry?.ip && telemetry.ip !== '0.0.0.0') ||
-    telemetry?.network?.wifiConnected === true;
+  // Find if any OTHER device in `/helmets` currently has an active unresolved real SOS
+  const otherDevicesWithActiveSos = availableDevices.filter(
+    (d) => d.hasActiveSos && d.deviceId !== targetDeviceId
+  );
 
   const navItems: {
     id: NavTabId;
     label: string;
     icon: React.ReactNode;
+    badgeCount?: number;
   }[] = [
     {
       id: 'dashboard',
@@ -342,6 +302,7 @@ export function App() {
       id: 'events',
       label: 'Nhật ký hoạt động',
       icon: <Clock className="h-[18px] w-[18px]" />,
+      badgeCount: activeEmergencySos ? 1 : undefined,
     },
     {
       id: 'contacts',
@@ -355,7 +316,6 @@ export function App() {
     },
   ];
 
-  // Show loading screen while checking persisted login session
   if (authLoading) {
     return (
       <div className="min-h-screen bg-[#F0F2F5] flex items-center justify-center p-4">
@@ -367,7 +327,6 @@ export function App() {
     );
   }
 
-  // Require login before entering the Dashboard
   if (!firebaseAuthUser) {
     return (
       <LoginGateView
@@ -399,7 +358,7 @@ export function App() {
         />
       )}
 
-      {/* SIDEBAR — Deep Navy #001529 with #1890FF active item matching reference image */}
+      {/* SIDEBAR — Deep Navy #001529 */}
       <aside
         className={`fixed inset-y-0 left-0 z-50 w-60 shrink-0 transform bg-[#001529] text-white shadow-[2px_0_8px_rgba(0,21,41,0.15)] transition-transform duration-200 lg:static lg:h-screen lg:translate-x-0 flex flex-col justify-between ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
@@ -417,7 +376,7 @@ export function App() {
                   CAS-BOX
                 </div>
                 <div className="text-[11px] text-slate-400 mt-0.5">
-                  An toàn hành trình
+                  Phase 3.4 • V2.4.2-dev
                 </div>
               </div>
             </div>
@@ -442,16 +401,25 @@ export function App() {
                       setActiveTab(item.id);
                       setSidebarOpen(false);
                     }}
-                    className={`w-full flex items-center gap-3 px-6 py-3 text-[13.5px] transition ${
+                    className={`w-full flex items-center justify-between px-6 py-3 text-[13.5px] transition ${
                       isActive
                         ? 'bg-[#1890FF] text-white font-medium'
                         : 'text-white/65 hover:text-white hover:bg-white/5 font-normal'
                     }`}
                   >
-                    <span className={isActive ? 'text-white' : 'text-white/65'}>
-                      {item.icon}
-                    </span>
-                    <span>{item.label}</span>
+                    <div className="flex items-center gap-3">
+                      <span
+                        className={isActive ? 'text-white' : 'text-white/65'}
+                      >
+                        {item.icon}
+                      </span>
+                      <span>{item.label}</span>
+                    </div>
+                    {item.badgeCount && (
+                      <span className="rounded-full bg-[#F5222D] px-2 py-0.2 text-[10px] font-extrabold text-white">
+                        SOS
+                      </span>
+                    )}
                   </button>
                 );
               })}
@@ -474,7 +442,7 @@ export function App() {
               </div>
               <div className="text-[11px] text-white/55 truncate">
                 {currentUser.role === 'OWNER'
-                  ? 'Chủ mũ bảo hiểm'
+                  ? 'Chủ thiết bị'
                   : currentUser.role === 'EMERGENCY_CONTACT'
                   ? 'Người thân gia đình'
                   : 'Quản trị viên'}
@@ -486,9 +454,9 @@ export function App() {
 
       {/* MAIN AREA */}
       <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
-        {/* Top Bar — Pure white with soft Ant Design shadow */}
-        <header className="shrink-0 z-30 bg-white shadow-[0_1px_4px_rgba(0,21,41,0.08)] px-4 py-3 sm:px-6">
-          <div className="flex items-center justify-between gap-4 w-full">
+        {/* Top Bar with Multi-Device Selector */}
+        <header className="shrink-0 z-30 bg-white shadow-[0_1px_4px_rgba(0,21,41,0.08)] px-4 py-2.5 sm:px-6">
+          <div className="flex flex-wrap items-center justify-between gap-3 w-full">
             <div className="flex items-center gap-3">
               <button
                 onClick={() => setSidebarOpen(true)}
@@ -501,28 +469,80 @@ export function App() {
               </h1>
             </div>
 
-            <div className="flex items-center gap-3">
-              {/* Real Firebase Connection & Battery Pill */}
+            <div className="flex flex-wrap items-center gap-2.5">
+              {/* Requirement 1: Multi-Device Selector (/helmets/{deviceId}) */}
+              <div className="flex items-center gap-1.5 rounded-lg border border-[#91D5FF] bg-[#E6F7FF]/60 px-2.5 py-1 text-xs">
+                <Cpu className="h-3.5 w-3.5 text-[#1890FF] shrink-0" />
+                <span className="font-semibold text-[#0050B3] hidden md:inline">
+                  Thiết bị:
+                </span>
+                <select
+                  aria-label="Chọn thiết bị SmartHelmet"
+                  value={targetDeviceId}
+                  onChange={(e) => {
+                    handleSelectDevice(e.target.value);
+                    showToast(
+                      `Đã chuyển sang theo dõi thiết bị: ${e.target.value}`
+                    );
+                  }}
+                  className="bg-transparent font-mono font-bold text-[#002766] focus:outline-none cursor-pointer pr-1"
+                >
+                  {availableDevices.map((dev) => (
+                    <option key={dev.deviceId} value={dev.deviceId}>
+                      {dev.deviceId}
+                      {dev.fw && dev.fw !== '--' ? ` (${dev.fw})` : ''}
+                      {dev.hasActiveSos ? ' [🔴 SOS!]' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Cross-device Active SOS Quick Switch Pill */}
+              {otherDevicesWithActiveSos.map((d) => (
+                <button
+                  key={d.deviceId}
+                  type="button"
+                  onClick={() => handleSelectDevice(d.deviceId)}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-[#F5222D] px-2.5 py-1 text-xs font-bold text-white hover:bg-[#CF1322] transition animate-pulse"
+                >
+                  <AlertOctagon className="h-3.5 w-3.5" />
+                  <span>SOS trên {d.deviceId}! Xem ngay</span>
+                </button>
+              ))}
+
+              {/* Real Firebase Connection, Mode & Battery Pill */}
               <div className="hidden sm:flex items-center gap-2 rounded-md border border-[#E8E8E8] bg-[#FAFAFA] px-3 py-1.5 text-xs">
                 <span
+                  className={`rounded px-1.5 py-0.5 text-[11px] font-bold border ${activeModeProfile.badgeBg} ${activeModeProfile.badgeText} ${activeModeProfile.badgeBorder}`}
+                >
+                  {activeModeProfile.label}
+                </span>
+                <span className="text-slate-300">|</span>
+                <span
                   className={`h-2 w-2 rounded-full ${
-                    telemetry && !isStale && fbWifiConnected
+                    telemetry && !isStale
                       ? 'bg-[#52C41A]'
                       : telemetry && isStale
-                      ? 'bg-[#FAAD14]'
+                      ? 'bg-[#F5222D]'
                       : 'bg-slate-400'
                   }`}
                 />
-                <span className="font-medium text-[#595959]">
+                <span
+                  className={`font-semibold ${
+                    telemetry && isStale
+                      ? 'text-[#CF1322]'
+                      : telemetry && !isStale
+                      ? 'text-[#389E0D]'
+                      : 'text-[#595959]'
+                  }`}
+                >
                   {telemetryLoading
                     ? 'Đang tải...'
                     : !telemetry
                     ? 'Chưa có dữ liệu'
                     : isStale
-                    ? 'Mất cập nhật'
-                    : fbWifiConnected
-                    ? 'Wi-Fi kết nối'
-                    : 'Wi-Fi ngắt'}
+                    ? 'Offline'
+                    : 'Online'}
                 </span>
                 <span className="text-slate-300">|</span>
                 <span
@@ -539,11 +559,13 @@ export function App() {
                   ) : (
                     <Battery className="h-3.5 w-3.5 text-[#52C41A]" />
                   )}
-                  {fbBatteryPercentage !== null ? `${fbBatteryPercentage}%` : '--'}
+                  {fbBatteryPercentage !== null
+                    ? `${fbBatteryPercentage}%`
+                    : '--'}
                 </span>
               </div>
 
-              {/* Header User Avatar Pill like reference image */}
+              {/* Header User Avatar Pill */}
               <button
                 onClick={() => setActiveTab('auth')}
                 className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-slate-50 transition"
@@ -558,6 +580,49 @@ export function App() {
             </div>
           </div>
         </header>
+
+        {/* Global Persistent Active SOS Bar when user is NOT on Dashboard tab */}
+        {activeEmergencySos && activeTab !== 'dashboard' && (
+          <div className="shrink-0 bg-[#FFF1F0] border-b border-[#FFA39E] px-4 py-2.5 sm:px-6 flex flex-wrap items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-2.5 text-[#CF1322]">
+              <AlertOctagon className="h-4 w-4 text-[#F5222D] animate-pulse shrink-0" />
+              <span>
+                <strong>
+                  CẢNH BÁO SOS KHẨN CẤP (#{activeEmergencySos.id}) trên{' '}
+                  {activeEmergencySos.deviceId}:
+                </strong>{' '}
+                GPS {activeEmergencySos.loc.type} • SMS{' '}
+                {activeEmergencySos.sms.sent}/{activeEmergencySos.sms.targets} •
+                answeredBy:{' '}
+                {activeEmergencySos.answeredBy > 0
+                  ? `#${activeEmergencySos.answeredBy}`
+                  : '0'}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              {activeEmergencySos.loc.mapUrl && (
+                <a
+                  href={activeEmergencySos.loc.mapUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 rounded bg-white border border-[#1890FF] px-2.5 py-1 font-semibold text-[#1890FF]"
+                >
+                  <span>Google Maps</span>
+                  <ArrowUpRight className="h-3 w-3" />
+                </a>
+              )}
+              <button
+                type="button"
+                disabled={resolvingSosId === activeEmergencySos.id}
+                onClick={() => handleResolveSosIncident(activeEmergencySos.id)}
+                className="inline-flex items-center gap-1 rounded bg-[#52C41A] px-3 py-1 font-bold text-white hover:bg-[#389E0D]"
+              >
+                <Check className="h-3.5 w-3.5" />
+                <span>Xác nhận đã xử lý</span>
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Subtle Notification Toast */}
         {toastMessage && (
@@ -579,9 +644,14 @@ export function App() {
               device={device}
               ownerName={currentUser.fullName}
               config={config}
-              contacts={activeContacts.length > 0 ? activeContacts : fallbackContacts}
-              recentEvents={events}
+              contacts={firebaseContacts}
+              contactSyncComparison={contactSyncComparison}
+              activeEmergencySos={activeEmergencySos}
+              realSosEvents={realSosEvents}
+              resolvingSosId={resolvingSosId}
+              onResolveSos={handleResolveSosIncident}
               telemetry={telemetry}
+              gpsStatus={gpsStatus}
               liveSamples={liveSamples}
               telemetryLoading={telemetryLoading}
               telemetryError={telemetryError}
@@ -590,10 +660,23 @@ export function App() {
               isStale={isStale}
               secondsSinceUpdate={secondsSinceUpdate}
               lastUpdatedDate={lastUpdatedDate}
+              lastSeenVietnamText={lastSeenVietnamText}
               targetDeviceId={targetDeviceId}
               resolvedAddress={resolvedAddress}
               addressLoading={addressLoading}
               smartBattery={smartBattery}
+              activeModeProfile={activeModeProfile}
+              allModes={allModes}
+              modeConfigVersion={modeConfigVersion}
+              modeSyncState={modeSyncState}
+              onSelectMode={async (newMode) => {
+                const res = await handleSelectOperatingMode(newMode);
+                const modeLabel =
+                  allModes.find((m) => m.id === newMode)?.label || newMode;
+                showToast(
+                  `Đã gửi cấu hình chế độ "${modeLabel}" (v${res.version}) lên /helmets/${targetDeviceId}/config.`
+                );
+              }}
               onCancelByButton={handleCancelByButton}
               onCancelByPosture={handleCancelByPosture}
               onResetNormalState={handleResetNormalState}
@@ -604,51 +687,81 @@ export function App() {
           {activeTab === 'gps' && (
             <GPSTrackingView
               telemetry={telemetry}
+              gpsStatus={gpsStatus}
               telemetryLoading={telemetryLoading}
               targetDeviceId={targetDeviceId}
               resolvedAddress={resolvedAddress}
               addressLoading={addressLoading}
+              activeModeProfile={activeModeProfile}
+              allModes={allModes}
+              onSelectMode={async (newMode) => {
+                const res = await handleSelectOperatingMode(newMode);
+                const modeLabel =
+                  allModes.find((m) => m.id === newMode)?.label || newMode;
+                showToast(
+                  `Đã chuyển sang chế độ "${modeLabel}" (v${res.version}) và cập nhật Marker bản đồ.`
+                );
+              }}
             />
           )}
 
-          {activeTab === 'events' && <EventHistoryView events={events} />}
+          {activeTab === 'events' && (
+            <EventHistoryView
+              deviceId={targetDeviceId}
+              realSosEvents={realSosEvents}
+              testSosEvents={testSosEvents}
+              loading={sosEventsLoading}
+              resolvingId={resolvingSosId}
+              error={sosEventsError}
+              onResolveSos={handleResolveSosIncident}
+            />
+          )}
 
           {activeTab === 'contacts' && (
             <EmergencyContactsView
-              contacts={activeContacts}
-              espSosPhoneP1={
-                typeof telemetry?.contacts?.p1 === 'string'
-                  ? telemetry.contacts.p1
-                  : null
-              }
+              deviceId={targetDeviceId}
+              contacts={firebaseContacts}
+              telemetry={telemetry}
+              syncComparison={contactSyncComparison}
               loading={contactsLoading}
               saving={contactsSaving}
               error={contactsError}
               currentUserRole={currentUser.role}
               onAddContact={async (input) => {
                 await fbAddContact(input);
-                showToast(`Đã thêm ${input.name} lên Firebase.`);
-                showToast(`Đã thêm ${input.name} và đồng bộ xuống thiết bị.`);
+                showToast(
+                  `Đã thêm ${input.name} vào /helmets/${targetDeviceId}/emergencyContacts.`
+                );
               }}
               onUpdateContact={async (updated) => {
                 await fbUpdateContact(updated);
-                showToast(`Đã cập nhật ${updated.name} trên Firebase.`);
-                showToast(`Đã cập nhật ${updated.name} xuống thiết bị.`);
+                showToast(
+                  `Đã cập nhật ${updated.name} trên /helmets/${targetDeviceId}/emergencyContacts.`
+                );
               }}
               onDeleteContact={async (id) => {
                 await fbDeleteContact(id);
-                showToast('Đã xóa liên hệ trên Firebase.');
-                showToast('Đã xóa liên hệ và cập nhật xuống thiết bị.');
+                showToast(
+                  `Đã xóa liên hệ khỏi /helmets/${targetDeviceId}/emergencyContacts.`
+                );
               }}
               onReorderPriority={async (id, direction) => {
                 await fbReorderPriority(id, direction);
-                showToast('Đã cập nhật thứ tự ưu tiên trên Firebase.');
-                showToast('Đã cập nhật thứ tự ưu tiên xuống thiết bị.');
+                showToast(
+                  `Đã cập nhật thứ tự ưu tiên danh bạ của ${targetDeviceId}.`
+                );
               }}
               onSeedSampleContacts={async () => {
                 await fbSeedSampleContacts();
-                showToast('Đã khởi tạo danh bạ mẫu lên Firebase.');
-                showToast('Đã khởi tạo danh bạ mẫu xuống thiết bị.');
+                showToast(
+                  `Đã khởi tạo danh bạ chuẩn cho thiết bị ${targetDeviceId}.`
+                );
+              }}
+              onForceResync={async () => {
+                await fbForceResyncContacts();
+                showToast(
+                  `Đã đẩy lại cấu hình danh bạ (contactsUpdatedAt & configVersion) cho ${targetDeviceId}.`
+                );
               }}
             />
           )}

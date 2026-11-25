@@ -18,22 +18,87 @@ export type UserRole = 'OWNER' | 'EMERGENCY_CONTACT' | 'ADMIN';
 
 export type ConfigSyncStatus = 'SYNCED' | 'PENDING_SYNC' | 'SYNCING' | 'FAILED';
 
+export type OperatingModeId = 'helmet' | 'wheelchair' | 'motorbike' | 'backpack';
+
+export type ModeConfigSyncState = 'APPLIED' | 'SYNCING' | 'WAITING_ONLINE';
+
+export interface ModeThresholdPreset {
+  impactThresholdG: number; // Ngưỡng gia tốc va chạm (g)
+  tiltAngleThresholdDeg: number; // Ngưỡng góc nghiêng (°)
+  gyroThresholdDps: number; // Ngưỡng vận tốc góc (°/s)
+  cancelWindowSec: number; // Thời gian chờ hủy báo động (giây)
+}
+
+export interface OperatingModeProfile {
+  id: OperatingModeId;
+  label: string;
+  englishKey: string;
+  shortDesc: string;
+  accentColor: string;
+  badgeBg: string;
+  badgeText: string;
+  badgeBorder: string;
+  thresholds: ModeThresholdPreset;
+}
+
+export interface FirebaseModeConfigNode {
+  mode: OperatingModeId;
+  modeLabel: string;
+  configVersion: number;
+  thresholds: ModeThresholdPreset;
+  updatedAt: number;
+}
+
+export type GpsFixType = 'CURRENT' | 'OLD' | 'NONE';
+
 /**
- * Exact Firebase Realtime Database Schema for `/helmets/helmet01/status`
+ * Exact Firebase Realtime Database Schema for `/helmets/{deviceId}/status/gps`
+ * Compatible with Firmware V2.4.3-dev & backward-compatible with V2.4.2-dev
  */
 export interface FirebaseGpsNode {
-  // Primary fields at /helmets/helmet01/status/gps
+  // Primary V2.4.3-dev fields at /helmets/{deviceId}/status/gps
+  type?: GpsFixType | string;
+  valid?: boolean;
+  uartOpen?: boolean;
   lat?: number;
   lon?: number;
+  lastLat?: number;
+  lastLon?: number;
   sats?: number;
   hdop?: number;
   ageMs?: number;
-  valid?: boolean;
+  updatedAt?: number | string;
+  lastUtcYMD?: number;
+  lastUtcHMS?: number;
   // Backward-compatible aliases
   fix?: boolean;
   latitude?: number;
   longitude?: number;
   satellites?: number;
+}
+
+export interface NormalizedGpsStatus {
+  rawType: GpsFixType; // 'CURRENT' | 'OLD' | 'NONE'
+  isInferredLegacyType: boolean; // true if firmware V2.4.2-dev did not send explicit `type`
+  valid: boolean;
+  uartOpen: boolean | null;
+  lat: number | null;
+  lon: number | null;
+  lastLat: number | null;
+  lastLon: number | null;
+  displayLat: number | null; // Active lat for map/card (null when NONE)
+  displayLon: number | null; // Active lon for map/card (null when NONE)
+  sats: number | null;
+  hdop: number | null;
+  ageMs: number | null;
+  updatedAtMs: number | null;
+  updatedAtText: string; // Formatted in UTC+7
+  secondsSinceGpsUpdate: number | null;
+  isFreshRealtime: boolean; // True ONLY when rawType === 'CURRENT' AND updatedAt is recent
+  isStaleCurrentUpload: boolean; // True when rawType === 'CURRENT' BUT updatedAt was uploaded long ago
+  lastUtcText: string | null; // Formatted from lastUtcYMD & lastUtcHMS
+  googleMapsUrl: string | null;
+  sourcePath: string; // Always `helmets/{deviceId}/status/gps`
 }
 
 export interface FirebaseVector3Node {
@@ -63,10 +128,18 @@ export interface FirebaseMpuNode {
 }
 
 export interface FirebaseStatusContactsNode {
-  p1?: string; // Số điện thoại SOS trên ESP32
+  p1?: string; // Số điện thoại SOS ưu tiên 1 trên ESP32
   p2?: string;
   p3?: string;
+  p4?: string;
+  p5?: string;
   [key: string]: unknown;
+}
+
+export interface FirebaseContactChannelSlot {
+  priority?: number;
+  smsEnabled?: boolean;
+  callEnabled?: boolean;
 }
 
 export interface FirebaseDeviceNode {
@@ -91,8 +164,9 @@ export interface FirebaseButtonNode {
 }
 
 export interface FirebaseHelmetTelemetry {
-  // Primary fields at /helmets/helmet01/status
+  // Primary fields at /helmets/{deviceId}/status (SmartHelmet V2.4.2-dev)
   fw?: string | number;
+  mode?: OperatingModeId | string;
   deepSleep?: boolean;
   imuFault?: boolean;
   ip?: string;
@@ -105,6 +179,18 @@ export interface FirebaseHelmetTelemetry {
   syncReason?: string;
   uptimeS?: number;
   wifiRssi?: number;
+  // New V2.4.2-dev status fields
+  autoRealSos?: boolean;
+  sosTestMode?: boolean;
+  cancelWindowSec?: number;
+  activeContactCount?: number;
+  contactConfigVerified?: boolean;
+  contactSource?: string;
+  contactsUpdatedAt?: number;
+  contactChannels?: Record<string, FirebaseContactChannelSlot>;
+  impactThresholdG?: number;
+  batteryV?: number;
+  batteryLow?: boolean;
   gps?: FirebaseGpsNode;
   mpu?: FirebaseMpuNode;
   contacts?: FirebaseStatusContactsNode;
@@ -117,6 +203,87 @@ export interface FirebaseHelmetTelemetry {
   network?: FirebaseNetworkNode;
   battery?: FirebaseBatteryNode;
   button?: FirebaseButtonNode;
+}
+
+/**
+ * Schema cho bản ghi SOS & Event History của Firmware SmartHelmet V2.4.2-dev
+ * Đường dẫn: /helmets/{deviceId}/sos, /helmets/{deviceId}/events/{eventId}, /helmets/{deviceId}/testEvents/{eventId}
+ */
+export type SosLocationType = 'CURRENT' | 'OLD' | 'NONE';
+
+export interface FirebaseSosLocationNode {
+  type: SosLocationType;
+  lat?: number;
+  lon?: number;
+  mapUrl?: string;
+  utc?: string; // VD: "20261124 232244"
+}
+
+export interface FirebaseSosSmsNode {
+  sent: number;
+  targets: number;
+  initialLocType?: SosLocationType | string;
+  gpsUpdatesSubmitted?: number;
+}
+
+export type SosCallResultType =
+  | 'ANSWERED'
+  | 'NO_ANSWER'
+  | 'UNCONFIRMED'
+  | 'FAILED'
+  | 'NOT_CALLED'
+  | string;
+
+export interface FirebaseSosCallAttempt {
+  priority: number;
+  phone: string;
+  result: SosCallResultType;
+  callEnabled?: boolean;
+  smsEnabled?: boolean;
+}
+
+export interface FirebaseSosEventRecord {
+  id: string;
+  deviceId: string;
+  type: string; // 'SOS'
+  test: boolean;
+  sourceNode: 'sos' | 'events' | 'testEvents';
+  active?: boolean;
+  resolved?: boolean;
+  resolvedAt?: number;
+  resolvedBy?: string;
+  pushedAt?: number;
+  bootIndex?: number;
+  fw?: string;
+  mode?: string;
+  answeredBy: number; // 0 = chưa ai bắt máy, 1..5 = vị trí ưu tiên đã nghe máy
+  loc: FirebaseSosLocationNode;
+  sms: FirebaseSosSmsNode;
+  calls: FirebaseSosCallAttempt[];
+}
+
+export interface HelmetDeviceSummary {
+  deviceId: string;
+  fw: string;
+  lastSeen?: number | string;
+  hasActiveSos: boolean;
+  activeSosId: string | null;
+  activeContactCount?: number;
+  contactConfigVerified?: boolean;
+  sosTestMode?: boolean;
+}
+
+export interface ContactSyncComparison {
+  isSynced: boolean;
+  statusLabel: 'Synced' | 'Pending Sync';
+  webContactsUpdatedAt: number | null;
+  deviceContactsUpdatedAt: number | null;
+  webConfigVersion: number | null;
+  deviceConfigVersion: number | null;
+  contactConfigVerified: boolean;
+  contactSource: string | null;
+  activeContactCount: number;
+  reason: string;
 }
 
 /**

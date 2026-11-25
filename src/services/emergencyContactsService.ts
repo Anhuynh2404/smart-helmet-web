@@ -7,10 +7,16 @@ import {
   set,
   update,
 } from 'firebase/database';
-import { EmergencyContact } from '../types/helmet';
+import {
+  ContactSyncComparison,
+  EmergencyContact,
+  FirebaseContactChannelSlot,
+  FirebaseHelmetTelemetry,
+} from '../types/helmet';
 import {
   DEFAULT_HELMET_DEVICE_ID,
   getFirebaseDatabase,
+  normalizeDeviceId,
 } from './firebaseService';
 
 /**
@@ -22,6 +28,9 @@ export function normalizeVietnamPhone(raw: string): string {
   if (cleaned.startsWith('+84')) {
     return '0' + cleaned.slice(3);
   }
+  if (cleaned.startsWith('0084')) {
+    return '0' + cleaned.slice(4);
+  }
   if (cleaned.startsWith('84') && cleaned.length === 11) {
     return '0' + cleaned.slice(2);
   }
@@ -29,13 +38,16 @@ export function normalizeVietnamPhone(raw: string): string {
 }
 
 /**
- * Chuyển số điện thoại sang chuẩn quốc tế E.164 (+84...) để đồng bộ trực tiếp xuống `status/contacts/p1` của ESP32
+ * Chuyển số điện thoại sang chuẩn quốc tế E.164 (+84...) tương thích với ESP32 Firmware V2.4.2-dev
  * VD: "0376087754" -> "+84376087754"
  */
 export function toE164VietnamPhone(raw: string): string {
   const norm = normalizeVietnamPhone(raw);
   if (norm.startsWith('0') && norm.length === 10) {
     return '+84' + norm.slice(1);
+  }
+  if (norm.startsWith('+')) {
+    return norm;
   }
   return norm;
 }
@@ -132,45 +144,204 @@ function mapRawContact(
 }
 
 /**
- * Đồng bộ danh sách số điện thoại ưu tiên (p1, p2, p3...) trực tiếp xuống
- * `/helmets/{deviceId}/status/contacts` và `/helmets/{deviceId}/config/contacts`
- * để thiết bị ESP32 cập nhật ngay số SOS mới khi người dùng Thêm / Sửa / Xóa / Đổi thứ tự trên Web.
+ * Đồng bộ cấu hình danh bạ chính thức xuống `/helmets/{deviceId}/config`,
+ * `/helmets/{deviceId}/contactsUpdatedAt`, và `/helmets/{deviceId}/contactsInitialized`
+ * một cách nhất quán với Firmware SmartHelmet V2.4.2-dev.
+ * TUYỆT ĐỐI KHÔNG ghi đè trực tiếp vào `/helmets/{deviceId}/status` (nhánh của ESP32).
  */
-async function syncContactsToEspDevice(
+export async function syncContactsMetadataAndConfig(
   deviceId: string,
-  contacts: EmergencyContact[]
-) {
+  contacts: EmergencyContact[],
+  customTimestamp?: number
+): Promise<{ contactsUpdatedAt: number; configVersion: number }> {
   const db = getFirebaseDatabase();
-  if (!db) return;
+  if (!db) throw new Error('Chưa kết nối Firebase');
 
-  const cleanId = deviceId === 'helmet-001' ? 'helmet01' : deviceId;
-  const now = Date.now();
-  const sorted = [...contacts].sort((a, b) => a.priority - b.priority);
+  const cleanId = normalizeDeviceId(deviceId);
+  const now = customTimestamp || Date.now();
+  const sorted = [...contacts]
+    .sort((a, b) => a.priority - b.priority)
+    .slice(0, 5);
 
   const deviceContactsNode: Record<string, string> = {};
+  const contactChannelsNode: Record<string, FirebaseContactChannelSlot> = {};
+
   sorted.forEach((c, idx) => {
-    deviceContactsNode[`p${idx + 1}`] = toE164VietnamPhone(c.phone);
+    const slotKey = `p${idx + 1}`;
+    deviceContactsNode[slotKey] = toE164VietnamPhone(c.phone);
+    contactChannelsNode[slotKey] = {
+      priority: idx + 1,
+      smsEnabled: Boolean(c.smsEnabled ?? c.receiveSms ?? true),
+      callEnabled: Boolean(c.callEnabled ?? c.receiveCall ?? true),
+    };
   });
 
-  if (sorted.length === 0) {
-    deviceContactsNode.p1 = '';
+  // Đọc configVersion hiện tại từ /config và /status để tăng nhất quán
+  let currentMaxVersion = 0;
+  try {
+    const [cfgSnap, statusVerSnap] = await Promise.all([
+      get(ref(db, `helmets/${cleanId}/config`)),
+      get(ref(db, `helmets/${cleanId}/status/configVersion`)),
+    ]);
+    if (cfgSnap.exists() && typeof cfgSnap.val() === 'object') {
+      const cfgVal = cfgSnap.val() as Record<string, unknown>;
+      const v1 = Number(cfgVal.configVersion) || 0;
+      const v2 = Number(cfgVal.version) || 0;
+      currentMaxVersion = Math.max(currentMaxVersion, v1, v2);
+    }
+    if (statusVerSnap.exists()) {
+      const sv = Number(statusVerSnap.val()) || 0;
+      currentMaxVersion = Math.max(currentMaxVersion, sv);
+    }
+  } catch {
+    // Fallback if read fails
   }
 
+  const nextConfigVersion = currentMaxVersion + 1;
+
   await Promise.all([
-    set(ref(db, `helmets/${cleanId}/status/contacts`), deviceContactsNode),
-    update(ref(db, `helmets/${cleanId}/config`), {
-      contacts: deviceContactsNode,
-      updatedAt: now,
-    }),
     set(ref(db, `helmets/${cleanId}/contactsUpdatedAt`), now),
     set(ref(db, `helmets/${cleanId}/contactsInitialized`), true),
+    update(ref(db, `helmets/${cleanId}/config`), {
+      configVersion: nextConfigVersion,
+      version: nextConfigVersion,
+      contacts: deviceContactsNode,
+      contactChannels: contactChannelsNode,
+      contactsUpdatedAt: now,
+      updatedAt: now,
+    }),
   ]);
+
+  return { contactsUpdatedAt: now, configVersion: nextConfigVersion };
 }
 
 /**
- * Lắng nghe danh sách người thân theo thời gian thực từ Firebase Realtime Database.
- * Nếu lần đầu chưa có danh sách trên Web nhưng trên ESP32 có số default (`status/contacts/p1`),
- * tự động nạp số default đó thành một người thân bình thường để người dùng có thể Sửa hoặc Xóa ngay.
+ * Khởi tạo nguồn `emergencyContacts` chính thức từ dữ liệu `status/contacts` và `status/contactChannels`
+ * của thiết bị (hữu ích khi thiết bị mới như `helmet01_phase34` đang chạy danh bạ từ NVS nhưng chưa có node `emergencyContacts` trên Firebase).
+ */
+export async function importContactsFromDeviceStatus(
+  deviceId: string
+): Promise<EmergencyContact[]> {
+  const db = getFirebaseDatabase();
+  if (!db) throw new Error('Chưa kết nối Firebase');
+
+  const cleanId = normalizeDeviceId(deviceId);
+  const statusSnap = await get(ref(db, `helmets/${cleanId}/status`));
+  if (!statusSnap.exists() || typeof statusSnap.val() !== 'object') {
+    return [];
+  }
+
+  const statusVal = statusSnap.val() as Record<string, unknown>;
+  const rawContacts =
+    statusVal.contacts && typeof statusVal.contacts === 'object'
+      ? (statusVal.contacts as Record<string, unknown>)
+      : {};
+  const rawChannels =
+    statusVal.contactChannels && typeof statusVal.contactChannels === 'object'
+      ? (statusVal.contactChannels as Record<string, unknown>)
+      : {};
+
+  // Kiểm tra xem helmet01 có tên người thân cho cùng số điện thoại không để tự động gán tên thân thiện
+  const phoneNameDirectory = new Map<
+    string,
+    { name: string; relationship: string }
+  >();
+  try {
+    const refContactsSnap = await get(
+      ref(db, 'helmets/helmet01/emergencyContacts')
+    );
+    if (refContactsSnap.exists() && typeof refContactsSnap.val() === 'object') {
+      Object.values(
+        refContactsSnap.val() as Record<string, Record<string, unknown>>
+      ).forEach((item) => {
+        if (item && typeof item.phone === 'string') {
+          phoneNameDirectory.set(normalizeVietnamPhone(item.phone), {
+            name: String(item.name || 'Người thân'),
+            relationship: String(item.relationship || 'Người thân'),
+          });
+        }
+      });
+    }
+  } catch {
+    // Ignore cross-device lookup error
+  }
+
+  const now =
+    typeof statusVal.contactsUpdatedAt === 'number' &&
+    statusVal.contactsUpdatedAt > 0
+      ? statusVal.contactsUpdatedAt
+      : Date.now();
+
+  const importedList: EmergencyContact[] = [];
+  for (let i = 1; i <= 5; i++) {
+    const slotKey = `p${i}`;
+    const rawPhone =
+      typeof rawContacts[slotKey] === 'string'
+        ? String(rawContacts[slotKey]).trim()
+        : '';
+    if (!rawPhone) continue;
+
+    const normPhone = normalizeVietnamPhone(rawPhone);
+    const ch =
+      rawChannels[slotKey] && typeof rawChannels[slotKey] === 'object'
+        ? (rawChannels[slotKey] as Record<string, unknown>)
+        : {};
+    const smsEnabled =
+      typeof ch.smsEnabled === 'boolean' ? ch.smsEnabled : true;
+    const callEnabled =
+      typeof ch.callEnabled === 'boolean' ? ch.callEnabled : true;
+    const priority =
+      typeof ch.priority === 'number' && Number.isFinite(ch.priority)
+        ? ch.priority
+        : importedList.length + 1;
+
+    const knownInfo = phoneNameDirectory.get(normPhone);
+    const id = `contact_slot_p${i}`;
+
+    importedList.push({
+      id,
+      priority,
+      name: knownInfo?.name || `Liên hệ SOS #${i}`,
+      relationship: knownInfo?.relationship || `Ưu tiên #${i} trên thiết bị`,
+      phone: normPhone,
+      smsEnabled,
+      callEnabled,
+      updatedAt: now,
+      receiveSms: smsEnabled,
+      receiveCall: callEnabled,
+      isVerified: true,
+    });
+  }
+
+  if (importedList.length > 0) {
+    const contactsPayload: Record<string, unknown> = {};
+    importedList.forEach((c) => {
+      contactsPayload[c.id] = {
+        id: c.id,
+        priority: c.priority,
+        name: c.name,
+        relationship: c.relationship,
+        phone: c.phone,
+        smsEnabled: c.smsEnabled,
+        callEnabled: c.callEnabled,
+        updatedAt: c.updatedAt,
+      };
+    });
+
+    await set(
+      ref(db, `helmets/${cleanId}/emergencyContacts`),
+      contactsPayload
+    );
+    await syncContactsMetadataAndConfig(cleanId, importedList, now);
+  }
+
+  return importedList;
+}
+
+/**
+ * Lắng nghe danh sách người thân theo thời gian thực từ `/helmets/{deviceId}/emergencyContacts`.
+ * Nếu thiết bị chưa có `emergencyContacts` nhưng trong `status/contacts` đã có các slot `p1..p5`,
+ * tự động khởi tạo nguồn `emergencyContacts` chính thức cho thiết bị.
  */
 export function subscribeToEmergencyContacts(
   deviceId: string = DEFAULT_HELMET_DEVICE_ID,
@@ -187,7 +358,7 @@ export function subscribeToEmergencyContacts(
     return () => {};
   }
 
-  const cleanId = deviceId === 'helmet-001' ? 'helmet01' : deviceId;
+  const cleanId = normalizeDeviceId(deviceId);
   const contactsRef = ref(db, `helmets/${cleanId}/emergencyContacts`);
 
   return onValue(
@@ -199,48 +370,9 @@ export function subscribeToEmergencyContacts(
             ref(db, `helmets/${cleanId}/contactsInitialized`)
           );
           if (!initSnap.exists()) {
-            const espContactsSnap = await get(
-              ref(db, `helmets/${cleanId}/status/contacts`)
-            );
-            if (espContactsSnap.exists()) {
-              const espVal = espContactsSnap.val() as Record<string, unknown>;
-              const p1Raw =
-                typeof espVal?.p1 === 'string' ? espVal.p1.trim() : '';
-              if (p1Raw) {
-                const now = Date.now();
-                const defaultId = 'contact_default_p1';
-                const defaultContact: EmergencyContact = {
-                  id: defaultId,
-                  priority: 1,
-                  name: 'Liên hệ mặc định',
-                  relationship: 'SOS Thiết bị',
-                  phone: normalizeVietnamPhone(p1Raw),
-                  smsEnabled: true,
-                  callEnabled: true,
-                  updatedAt: now,
-                  receiveSms: true,
-                  receiveCall: true,
-                  isVerified: true,
-                };
-                await set(
-                  ref(db, `helmets/${cleanId}/emergencyContacts/${defaultId}`),
-                  {
-                    id: defaultContact.id,
-                    priority: defaultContact.priority,
-                    name: defaultContact.name,
-                    relationship: defaultContact.relationship,
-                    phone: defaultContact.phone,
-                    smsEnabled: true,
-                    callEnabled: true,
-                    updatedAt: now,
-                  }
-                );
-                await set(
-                  ref(db, `helmets/${cleanId}/contactsInitialized`),
-                  true
-                );
-                return;
-              }
+            const imported = await importContactsFromDeviceStatus(cleanId);
+            if (imported.length > 0) {
+              return; // onValue will fire immediately with imported contacts
             }
           }
         } catch {
@@ -286,7 +418,228 @@ export function subscribeToEmergencyContacts(
 }
 
 /**
- * Thêm mới một người thân lên Firebase và đồng bộ ngay xuống thiết bị
+ * Lắng nghe metadata đồng bộ (`contactsUpdatedAt` và `config/configVersion`) của thiết bị
+ */
+export function subscribeToContactSyncMetadata(
+  deviceId: string,
+  onMeta: (meta: {
+    contactsUpdatedAt: number | null;
+    configVersion: number | null;
+    contactsInitialized: boolean;
+  }) => void
+): () => void {
+  const db = getFirebaseDatabase();
+  if (!db) {
+    onMeta({
+      contactsUpdatedAt: null,
+      configVersion: null,
+      contactsInitialized: false,
+    });
+    return () => {};
+  }
+
+  const cleanId = normalizeDeviceId(deviceId);
+  let contactsUpdatedAt: number | null = null;
+  let configVersion: number | null = null;
+  let contactsInitialized = false;
+
+  const emit = () => {
+    onMeta({ contactsUpdatedAt, configVersion, contactsInitialized });
+  };
+
+  const unsubTs = onValue(
+    ref(db, `helmets/${cleanId}/contactsUpdatedAt`),
+    (snap) => {
+      const val = Number(snap.val());
+      contactsUpdatedAt = Number.isFinite(val) && val > 0 ? val : null;
+      emit();
+    },
+    () => {}
+  );
+
+  const unsubInit = onValue(
+    ref(db, `helmets/${cleanId}/contactsInitialized`),
+    (snap) => {
+      contactsInitialized = snap.val() === true;
+      emit();
+    },
+    () => {}
+  );
+
+  const unsubCfg = onValue(
+    ref(db, `helmets/${cleanId}/config`),
+    (snap) => {
+      if (snap.exists() && typeof snap.val() === 'object') {
+        const raw = snap.val() as Record<string, unknown>;
+        const ver = Number(raw.configVersion ?? raw.version);
+        configVersion = Number.isFinite(ver) && ver >= 0 ? ver : null;
+      } else {
+        configVersion = null;
+      }
+      emit();
+    },
+    () => {}
+  );
+
+  return () => {
+    unsubTs();
+    unsubInit();
+    unsubCfg();
+  };
+}
+
+/**
+ * So sánh `contactsUpdatedAt`, `configVersion`, danh sách SĐT + kênh liên lạc trên Web
+ * với trạng thái thực tế trong `/helmets/{deviceId}/status` của Firmware V2.4.2-dev
+ * để kết luận chính xác `Synced` hay `Pending Sync`.
+ */
+export function compareContactSyncWithDeviceStatus(
+  contacts: EmergencyContact[],
+  webMeta: {
+    contactsUpdatedAt: number | null;
+    configVersion: number | null;
+    contactsInitialized: boolean;
+  },
+  telemetry: FirebaseHelmetTelemetry | null
+): ContactSyncComparison {
+  const deviceContactsUpdatedAt =
+    typeof telemetry?.contactsUpdatedAt === 'number'
+      ? telemetry.contactsUpdatedAt
+      : null;
+  const deviceConfigVersion =
+    telemetry?.configVersion !== undefined &&
+    Number.isFinite(Number(telemetry.configVersion))
+      ? Number(telemetry.configVersion)
+      : null;
+  const contactConfigVerified = telemetry?.contactConfigVerified === true;
+  const contactSource =
+    typeof telemetry?.contactSource === 'string'
+      ? telemetry.contactSource
+      : null;
+  const activeContactCount =
+    typeof telemetry?.activeContactCount === 'number'
+      ? telemetry.activeContactCount
+      : telemetry?.contacts
+      ? Object.values(telemetry.contacts).filter(
+          (v) => typeof v === 'string' && v.trim() !== ''
+        ).length
+      : 0;
+
+  if (!telemetry) {
+    return {
+      isSynced: false,
+      statusLabel: 'Pending Sync',
+      webContactsUpdatedAt: webMeta.contactsUpdatedAt,
+      deviceContactsUpdatedAt: null,
+      webConfigVersion: webMeta.configVersion,
+      deviceConfigVersion: null,
+      contactConfigVerified: false,
+      contactSource: null,
+      activeContactCount: 0,
+      reason: 'Chưa nhận được dữ liệu status từ thiết bị',
+    };
+  }
+
+  // Kiểm tra khớp danh sách số điện thoại và kênh SMS/Call giữa emergencyContacts và status
+  const sortedWeb = [...contacts]
+    .sort((a, b) => a.priority - b.priority)
+    .slice(0, 5);
+  let allSlotsMatch = sortedWeb.length === activeContactCount && sortedWeb.length > 0;
+
+  for (let i = 0; i < sortedWeb.length; i++) {
+    const slotKey = `p${i + 1}`;
+    const webPhoneE164 = toE164VietnamPhone(sortedWeb[i].phone);
+    const devPhoneRaw =
+      telemetry.contacts && typeof telemetry.contacts[slotKey] === 'string'
+        ? String(telemetry.contacts[slotKey]).trim()
+        : '';
+    if (toE164VietnamPhone(devPhoneRaw) !== webPhoneE164) {
+      allSlotsMatch = false;
+      break;
+    }
+
+    const devCh = telemetry.contactChannels?.[slotKey];
+    if (devCh) {
+      const webSms = Boolean(sortedWeb[i].smsEnabled ?? true);
+      const webCall = Boolean(sortedWeb[i].callEnabled ?? true);
+      if (
+        (typeof devCh.smsEnabled === 'boolean' && devCh.smsEnabled !== webSms) ||
+        (typeof devCh.callEnabled === 'boolean' && devCh.callEnabled !== webCall)
+      ) {
+        allSlotsMatch = false;
+        break;
+      }
+    }
+  }
+
+  const timestampMatches =
+    webMeta.contactsUpdatedAt !== null &&
+    deviceContactsUpdatedAt !== null &&
+    webMeta.contactsUpdatedAt === deviceContactsUpdatedAt;
+
+  const timestampDeviceNewerOrEqual =
+    webMeta.contactsUpdatedAt !== null &&
+    deviceContactsUpdatedAt !== null &&
+    deviceContactsUpdatedAt >= webMeta.contactsUpdatedAt;
+
+  // Nếu firmware báo contactConfigVerified === false (VD: NVS/unverified hoặc config missing/invalid)
+  if (telemetry.contactConfigVerified === false) {
+    return {
+      isSynced: false,
+      statusLabel: 'Pending Sync',
+      webContactsUpdatedAt: webMeta.contactsUpdatedAt,
+      deviceContactsUpdatedAt,
+      webConfigVersion: webMeta.configVersion,
+      deviceConfigVersion,
+      contactConfigVerified: false,
+      contactSource,
+      activeContactCount,
+      reason: `Thiết bị báo chưa xác thực cấu hình (${
+        contactSource || 'NVS/unverified'
+      } • ${telemetry.configNote || 'chờ ESP32 đọc emergencyContacts'})`,
+    };
+  }
+
+  if (
+    allSlotsMatch &&
+    (timestampMatches ||
+      timestampDeviceNewerOrEqual ||
+      contactConfigVerified)
+  ) {
+    return {
+      isSynced: true,
+      statusLabel: 'Synced',
+      webContactsUpdatedAt: webMeta.contactsUpdatedAt,
+      deviceContactsUpdatedAt,
+      webConfigVersion: webMeta.configVersion,
+      deviceConfigVersion,
+      contactConfigVerified: true,
+      contactSource: contactSource || 'emergencyContacts',
+      activeContactCount,
+      reason: `Đã đồng bộ (${activeContactCount} liên hệ • nguồn: ${
+        contactSource || 'emergencyContacts'
+      })`,
+    };
+  }
+
+  return {
+    isSynced: false,
+    statusLabel: 'Pending Sync',
+    webContactsUpdatedAt: webMeta.contactsUpdatedAt,
+    deviceContactsUpdatedAt,
+    webConfigVersion: webMeta.configVersion,
+    deviceConfigVersion,
+    contactConfigVerified,
+    contactSource,
+    activeContactCount,
+    reason: !allSlotsMatch
+      ? 'Danh bạ trên Web vừa thay đổi, đang chờ ESP32 đồng bộ ở chu kỳ kế tiếp'
+      : 'Timestamp danh bạ trên Web mới hơn trạng thái báo cáo của ESP32',
+  };
+}
+
+/**
+ * Thêm mới một người thân lên Firebase và cập nhật metadata đồng bộ
  */
 export async function addEmergencyContactToFirebase(
   deviceId: string,
@@ -302,7 +655,7 @@ export async function addEmergencyContactToFirebase(
   const db = getFirebaseDatabase();
   if (!db) throw new Error('Chưa kết nối Firebase');
 
-  const cleanId = deviceId === 'helmet-001' ? 'helmet01' : deviceId;
+  const cleanId = normalizeDeviceId(deviceId);
   const now = Date.now();
   const id = `contact_${now}`;
   const normalizedPhone = normalizeVietnamPhone(input.phone);
@@ -323,11 +676,15 @@ export async function addEmergencyContactToFirebase(
     ref(db, `helmets/${cleanId}/emergencyContacts/${id}`),
     newContact
   );
-  await syncContactsToEspDevice(cleanId, [...existingContacts, newContact]);
+  await syncContactsMetadataAndConfig(
+    cleanId,
+    [...existingContacts, newContact],
+    now
+  );
 }
 
 /**
- * Cập nhật thông tin người thân và đồng bộ ngay xuống thiết bị
+ * Cập nhật thông tin người thân và cập nhật metadata đồng bộ
  */
 export async function updateEmergencyContactInFirebase(
   deviceId: string,
@@ -337,7 +694,7 @@ export async function updateEmergencyContactInFirebase(
   const db = getFirebaseDatabase();
   if (!db) throw new Error('Chưa kết nối Firebase');
 
-  const cleanId = deviceId === 'helmet-001' ? 'helmet01' : deviceId;
+  const cleanId = normalizeDeviceId(deviceId);
   const now = Date.now();
   const normalizedPhone = normalizeVietnamPhone(contact.phone);
 
@@ -360,11 +717,11 @@ export async function updateEmergencyContactInFirebase(
   const nextList = existingContacts.map((c) =>
     c.id === updated.id ? updated : c
   );
-  await syncContactsToEspDevice(cleanId, nextList);
+  await syncContactsMetadataAndConfig(cleanId, nextList, now);
 }
 
 /**
- * Xóa người thân, đánh lại priority (1, 2, 3...) và cập nhật ngay xuống thiết bị
+ * Xóa người thân, đánh lại priority (1, 2, 3...) và cập nhật metadata đồng bộ
  */
 export async function deleteEmergencyContactFromFirebase(
   deviceId: string,
@@ -374,7 +731,7 @@ export async function deleteEmergencyContactFromFirebase(
   const db = getFirebaseDatabase();
   if (!db) throw new Error('Chưa kết nối Firebase');
 
-  const cleanId = deviceId === 'helmet-001' ? 'helmet01' : deviceId;
+  const cleanId = normalizeDeviceId(deviceId);
   const now = Date.now();
   await remove(ref(db, `helmets/${cleanId}/emergencyContacts/${contactId}`));
 
@@ -396,11 +753,11 @@ export async function deleteEmergencyContactFromFirebase(
     await update(ref(db, `helmets/${cleanId}/emergencyContacts`), updates);
   }
 
-  await syncContactsToEspDevice(cleanId, remaining);
+  await syncContactsMetadataAndConfig(cleanId, remaining, now);
 }
 
 /**
- * Đổi thứ tự ưu tiên (↑ / ↓) giữa 2 người thân và đồng bộ ngay p1, p2... xuống thiết bị
+ * Đổi thứ tự ưu tiên (↑ / ↓) giữa 2 người thân và cập nhật metadata đồng bộ
  */
 export async function reorderEmergencyContactPriorityInFirebase(
   deviceId: string,
@@ -411,7 +768,7 @@ export async function reorderEmergencyContactPriorityInFirebase(
   const db = getFirebaseDatabase();
   if (!db) throw new Error('Chưa kết nối Firebase');
 
-  const cleanId = deviceId === 'helmet-001' ? 'helmet01' : deviceId;
+  const cleanId = normalizeDeviceId(deviceId);
   const sorted = [...existingContacts].sort((a, b) => a.priority - b.priority);
   const idx = sorted.findIndex((c) => c.id === contactId);
   if (idx === -1) return;
@@ -433,11 +790,11 @@ export async function reorderEmergencyContactPriorityInFirebase(
   });
 
   await update(ref(db, `helmets/${cleanId}/emergencyContacts`), updates);
-  await syncContactsToEspDevice(cleanId, reordered);
+  await syncContactsMetadataAndConfig(cleanId, reordered, now);
 }
 
 /**
- * Khởi tạo danh bạ mẫu chuẩn lên Firebase nếu node đang trống
+ * Khởi tạo danh bạ từ trạng thái thiết bị (hoặc danh bạ mẫu nếu thiết bị trống)
  */
 export async function seedSampleContactsToFirebase(
   deviceId: string
@@ -445,15 +802,20 @@ export async function seedSampleContactsToFirebase(
   const db = getFirebaseDatabase();
   if (!db) throw new Error('Chưa kết nối Firebase');
 
-  const cleanId = deviceId === 'helmet-001' ? 'helmet01' : deviceId;
+  const cleanId = normalizeDeviceId(deviceId);
+  const imported = await importContactsFromDeviceStatus(cleanId);
+  if (imported.length > 0) {
+    return;
+  }
+
   const now = Date.now();
   const list: EmergencyContact[] = [
     {
       id: 'contact_1',
       priority: 1,
-      name: 'Huỳnh Minh Tuấn',
-      relationship: 'Anh trai',
-      phone: '0909128456',
+      name: 'AnHC',
+      relationship: 'Bố',
+      phone: '0559155754',
       smsEnabled: true,
       callEnabled: true,
       updatedAt: now,
@@ -461,21 +823,11 @@ export async function seedSampleContactsToFirebase(
     {
       id: 'contact_2',
       priority: 2,
-      name: 'Nguyễn Thị Lan',
+      name: 'Người thân 2',
       relationship: 'Mẹ',
-      phone: '0918764321',
+      phone: '0376087754',
       smsEnabled: true,
       callEnabled: true,
-      updatedAt: now,
-    },
-    {
-      id: 'contact_3',
-      priority: 3,
-      name: 'Trần Quốc Bảo',
-      relationship: 'Bạn cùng phòng',
-      phone: '0983551902',
-      smsEnabled: true,
-      callEnabled: false,
       updatedAt: now,
     },
   ];
@@ -486,5 +838,5 @@ export async function seedSampleContactsToFirebase(
   });
 
   await set(ref(db, `helmets/${cleanId}/emergencyContacts`), sampleData);
-  await syncContactsToEspDevice(cleanId, list);
+  await syncContactsMetadataAndConfig(cleanId, list, now);
 }
