@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
+import L from 'leaflet';
 import {
   Accessibility,
   Activity,
@@ -17,6 +18,7 @@ import {
   HardHat,
   KeyRound,
   Loader2,
+  LocateFixed,
   MapPin,
   MessageSquare,
   Moon,
@@ -47,6 +49,7 @@ import {
   OperatingModeId,
   OperatingModeProfile,
 } from '../types/helmet';
+import { buildDeviceLeafletMarkerIcon } from './GPSTrackingView';
 
 interface DashboardViewProps {
   device: HelmetDeviceState;
@@ -164,6 +167,120 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onNavigateTab,
 }) => {
   const friendlyDeviceTitle = formatFriendlyDeviceName(targetDeviceId);
+  const isSosActive = Boolean(activeEmergencySos);
+  const dashboardMapContainerRef = useRef<HTMLDivElement | null>(null);
+  const dashboardMapInstanceRef = useRef<L.Map | null>(null);
+
+  const effectiveMapLat =
+    gpsStatus.displayLat ??
+    (isSosActive && typeof activeEmergencySos?.loc.lat === 'number'
+      ? activeEmergencySos.loc.lat
+      : null);
+  const effectiveMapLon =
+    gpsStatus.displayLon ??
+    (isSosActive && typeof activeEmergencySos?.loc.lon === 'number'
+      ? activeEmergencySos.loc.lon
+      : null);
+  const hasDashboardMapCoords =
+    effectiveMapLat !== null &&
+    effectiveMapLon !== null &&
+    !(effectiveMapLat === 0 && effectiveMapLon === 0);
+
+  // Live Interactive Map on Dashboard with Red Pulsing/Blinking Marker when SOS is active
+  useEffect(() => {
+    if (
+      !hasDashboardMapCoords ||
+      effectiveMapLat === null ||
+      effectiveMapLon === null
+    ) {
+      if (dashboardMapInstanceRef.current) {
+        dashboardMapInstanceRef.current.remove();
+        dashboardMapInstanceRef.current = null;
+      }
+      return;
+    }
+
+    if (!dashboardMapContainerRef.current) return;
+
+    if (!dashboardMapInstanceRef.current) {
+      const map = L.map(dashboardMapContainerRef.current, {
+        center: [effectiveMapLat, effectiveMapLon],
+        zoom: 16,
+        zoomControl: true,
+      });
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap',
+        maxZoom: 19,
+      }).addTo(map);
+
+      dashboardMapInstanceRef.current = map;
+    }
+
+    const map = dashboardMapInstanceRef.current;
+
+    map.eachLayer((layer) => {
+      if (!(layer instanceof L.TileLayer)) {
+        map.removeLayer(layer);
+      }
+    });
+
+    const markerIcon = buildDeviceLeafletMarkerIcon(
+      activeModeProfile,
+      isSosActive,
+      gpsStatus.rawType,
+      gpsStatus.isStaleCurrentUpload
+    );
+
+    const accent = isSosActive ? '#F5222D' : activeModeProfile.accentColor;
+    const statusLabel = isSosActive
+      ? '🔴 ĐANG CẦU CỨU SOS!'
+      : gpsStatus.rawType === 'CURRENT'
+      ? 'Vị trí trực tiếp'
+      : 'Vị trí lưu gần nhất';
+
+    const addressTitle =
+      resolvedAddress ||
+      `${effectiveMapLat.toFixed(5)}, ${effectiveMapLon.toFixed(5)}`;
+
+    const marker = L.marker([effectiveMapLat, effectiveMapLon], {
+      icon: markerIcon,
+    })
+      .addTo(map)
+      .bindPopup(
+        `<div style="min-width:215px">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:4px">
+            <span style="font-weight:700;color:${accent};font-size:12px">${friendlyDeviceTitle}</span>
+            <span style="background:${accent};color:#fff;padding:1px 7px;border-radius:999px;font-size:10px;font-weight:700">${statusLabel}</span>
+          </div>
+          <div style="font-size:12px;font-weight:600;color:#18181B">${addressTitle}</div>
+        </div>`
+      );
+
+    if (isSosActive) {
+      marker.openPopup();
+    }
+    map.setView([effectiveMapLat, effectiveMapLon], map.getZoom());
+  }, [
+    hasDashboardMapCoords,
+    effectiveMapLat,
+    effectiveMapLon,
+    isSosActive,
+    activeModeProfile,
+    gpsStatus.rawType,
+    gpsStatus.isStaleCurrentUpload,
+    resolvedAddress,
+    friendlyDeviceTitle,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      if (dashboardMapInstanceRef.current) {
+        dashboardMapInstanceRef.current.remove();
+        dashboardMapInstanceRef.current = null;
+      }
+    };
+  }, []);
   const deepSleepFeatureEnabled = telemetry?.deepSleep === true;
   const imuFault = telemetry?.imuFault === true;
   const rawOnlineFlag = telemetry?.online === true;
@@ -403,7 +520,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 ) : (
                   <Check className="h-4 w-4" />
                 )}
-                <span>Xác nhận đã hỗ trợ an toàn</span>
+                <span>Tắt cảnh báo / Xác nhận</span>
               </button>
             </div>
           </div>
@@ -855,6 +972,75 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         </div>
       </div>
+
+      {/* LIVE DASHBOARD MAP WITH PULSING RED SOS MARKER */}
+      {hasDashboardMapCoords && (
+        <div
+          className={`rounded-lg border p-4 shadow-[0_1px_2px_rgba(0,0,0,0.03)] space-y-3 transition-colors ${
+            isSosActive
+              ? 'border-2 border-[#F5222D] bg-[#FFF1F0]/45'
+              : 'border-[#E8E8E8] bg-white'
+          }`}
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <MapPin
+                className={`h-4 w-4 ${
+                  isSosActive ? 'text-[#F5222D] animate-bounce' : 'text-[#1890FF]'
+                }`}
+              />
+              <h3 className="text-sm font-bold text-[#262626]">
+                Bản đồ vị trí thiết bị trực tiếp
+              </h3>
+              {isSosActive ? (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-[#F5222D] px-2.5 py-0.5 text-[11px] font-extrabold text-white animate-pulse">
+                  ● MARKER ĐỎ NHẤP NHÁY — ĐANG PHÁT TÍN HIỆU SOS
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-[#F6FFED] border border-[#B7EB8F] px-2.5 py-0.5 text-[11px] font-semibold text-[#389E0D]">
+                  ● Trạng thái bình thường ({activeModeProfile.label})
+                </span>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  if (
+                    dashboardMapInstanceRef.current &&
+                    effectiveMapLat !== null &&
+                    effectiveMapLon !== null
+                  ) {
+                    dashboardMapInstanceRef.current.flyTo(
+                      [effectiveMapLat, effectiveMapLon],
+                      16,
+                      { duration: 0.7 }
+                    );
+                  }
+                }}
+                className="inline-flex items-center gap-1 rounded-md border border-[#D9D9D9] bg-white px-2.5 py-1 text-xs font-medium text-[#262626] hover:border-[#1890FF] hover:text-[#1890FF] transition"
+              >
+                <LocateFixed className="h-3.5 w-3.5" />
+                <span>Định tâm</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onNavigateTab('gps')}
+                className="inline-flex items-center gap-1 rounded-md bg-[#1890FF] px-3 py-1 text-xs font-semibold text-white hover:bg-[#40A9FF] transition"
+              >
+                <span>Mở bản đồ toàn màn hình →</span>
+              </button>
+            </div>
+          </div>
+
+          <div
+            ref={dashboardMapContainerRef}
+            className="h-[270px] w-full rounded-lg overflow-hidden border border-zinc-200"
+          />
+        </div>
+      )}
 
       {/* 4 OPERATING MODES SELECTOR (Clean End-User View) */}
       <div className="rounded-lg border border-[#E8E8E8] bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,0.03)] space-y-4">

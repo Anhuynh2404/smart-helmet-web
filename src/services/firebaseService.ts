@@ -98,7 +98,7 @@ export function subscribeToFirebaseAuth(
   const auth = getFirebaseAuth();
   if (!auth) {
     onUserChanged(null);
-    return () => {};
+    return () => { };
   }
   return onAuthStateChanged(auth, onUserChanged);
 }
@@ -139,7 +139,7 @@ export function subscribeToFirebaseConnectionState(
   const db = getFirebaseDatabase();
   if (!db) {
     onConnectedChange(false);
-    return () => {};
+    return () => { };
   }
   const connectedRef = ref(db, '.info/connected');
   return onValue(
@@ -167,10 +167,7 @@ function buildDeviceSummary(
       : null;
 
   const isRealActiveSos = Boolean(
-    sos &&
-      sos.active === true &&
-      sos.resolved !== true &&
-      sos.test !== true
+    sos && sos.active === true && sos.resolved !== true
   );
 
   return {
@@ -179,8 +176,8 @@ function buildDeviceSummary(
       status.fw !== undefined
         ? String(status.fw)
         : sos?.fw !== undefined
-        ? String(sos.fw)
-        : '--',
+          ? String(sos.fw)
+          : '--',
     lastSeen:
       typeof status.lastSeen === 'number' || typeof status.lastSeen === 'string'
         ? status.lastSeen
@@ -214,7 +211,7 @@ export function subscribeToAccessibleDevices(
     onDevices(
       KNOWN_DEFAULT_DEVICES.map((id) => buildDeviceSummary(id, null))
     );
-    return () => {};
+    return () => { };
   }
 
   let fallbackUnsubscribes: (() => void)[] = [];
@@ -294,14 +291,14 @@ export function subscribeToAccessibleDevices(
                     fw: st.fw !== undefined ? String(st.fw) : prev.fw,
                     lastSeen:
                       typeof st.lastSeen === 'number' ||
-                      typeof st.lastSeen === 'string'
+                        typeof st.lastSeen === 'string'
                         ? st.lastSeen
                         : prev.lastSeen,
                   });
                   emit();
                 }
               },
-              () => {}
+              () => { }
             );
             fallbackUnsubscribes.push(stUnsub);
           }
@@ -334,7 +331,7 @@ export function subscribeToHelmetTelemetry(
     ) as Error & { code?: string };
     configErr.code = 'CONFIG_MISSING';
     onError(configErr);
-    return () => {};
+    return () => { };
   }
 
   const cleanId = normalizeDeviceId(deviceId);
@@ -372,7 +369,7 @@ export function subscribeToHelmetGpsStatus(
   const db = getFirebaseDatabase();
   if (!db) {
     onGpsData(null);
-    return () => {};
+    return () => { };
   }
 
   const cleanId = normalizeDeviceId(deviceId);

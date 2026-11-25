@@ -5,56 +5,39 @@ import {
   normalizeDeviceId,
 } from '../services/firebaseService';
 import {
+  registerGlobalAudioUnlock,
+  startSosSirenAlarm,
+  stopSosSirenAlarm,
+} from '../services/sosAudioAlarmService';
+import {
   resolveSosIncidentTransaction,
   subscribeToDeviceEventMap,
   subscribeToDeviceSosNode,
 } from '../services/sosEventsService';
-import { FirebaseSosEventRecord } from '../types/helmet';
-
-const SESSION_NOTIFIED_SOS_KEY = 'casbox_notified_sos_keys_v1';
-
-function getSessionNotifiedSet(): Set<string> {
-  try {
-    const raw = sessionStorage.getItem(SESSION_NOTIFIED_SOS_KEY);
-    if (raw) {
-      const arr = JSON.parse(raw);
-      if (Array.isArray(arr)) {
-        return new Set(arr.map(String));
-      }
-    }
-  } catch {
-    // Ignore storage error
-  }
-  return new Set();
-}
-
-function addSessionNotifiedKey(key: string): void {
-  try {
-    const set = getSessionNotifiedSet();
-    set.add(key);
-    sessionStorage.setItem(
-      SESSION_NOTIFIED_SOS_KEY,
-      JSON.stringify(Array.from(set))
-    );
-  } catch {
-    // Ignore storage error
-  }
-}
+import {
+  FirebaseHelmetTelemetry,
+  FirebaseSosEventRecord,
+} from '../types/helmet';
 
 export interface UseHelmetSosEventsResult {
   latestSos: FirebaseSosEventRecord | null;
-  activeEmergencySos: FirebaseSosEventRecord | null; // Only non-null when active=true, resolved=false, test=false
-  realSosEvents: FirebaseSosEventRecord[]; // Strictly real SOS events (test=false)
-  testSosEvents: FirebaseSosEventRecord[]; // Strictly test events from testEvents or test=true
+  activeEmergencySos: FirebaseSosEventRecord | null; // Non-null whenever SOS is triggered on Firebase
+  realSosEvents: FirebaseSosEventRecord[];
+  testSosEvents: FirebaseSosEventRecord[];
+  isAlarmPlaying: boolean;
+  autoplayBlocked: boolean;
+  isAlarmMutedByUser: boolean;
   loading: boolean;
   resolvingId: string | null;
   error: string | null;
   resolveSos: (eventId: string, resolverName?: string) => Promise<void>;
+  enableOrToggleAudioAlarm: () => Promise<void>;
 }
 
 export function useHelmetSosEvents(
   deviceId: string,
   authUser: User | null,
+  telemetry: FirebaseHelmetTelemetry | null = null,
   onNewEmergencySosDetected?: (sos: FirebaseSosEventRecord) => void
 ): UseHelmetSosEventsResult {
   const cleanId = normalizeDeviceId(deviceId);
@@ -71,14 +54,18 @@ export function useHelmetSosEvents(
   const [resolvingId, setResolvingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const notifiedKeysRef = useRef<Set<string>>(getSessionNotifiedSet());
+  // Audio Alarm states
+  const [isAlarmPlaying, setIsAlarmPlaying] = useState<boolean>(false);
+  const [autoplayBlocked, setAutoplayBlocked] = useState<boolean>(false);
+  const [isAlarmMutedByUser, setIsAlarmMutedByUser] = useState<boolean>(false);
+
+  const notifiedKeysRef = useRef<Set<string>>(new Set());
   const onNewSosCallbackRef = useRef(onNewEmergencySosDetected);
   onNewSosCallbackRef.current = onNewEmergencySosDetected;
 
   const configured = isFirebaseConfigured();
 
   // Subscribe to /helmets/{deviceId}/sos, /events, and /testEvents
-  // Automatically unsubscribes old listeners when deviceId changes
   useEffect(() => {
     setLoading(true);
     setError(null);
@@ -108,19 +95,16 @@ export function useHelmetSosEvents(
         setLatestSos(sosRecord);
         checkAllLoaded();
 
-        // Requirement 2 & 7: Trigger Realtime SOS Notification ONLY when
-        // active === true && resolved === false && test === false
-        // Deduplicated by `${deviceId}:${eventId}`
+        // Khi node /helmets/{deviceId}/sos có active === true && resolved !== true -> Kích hoạt SOS Trigger!
         if (
           sosRecord &&
           sosRecord.active === true &&
-          sosRecord.resolved !== true &&
-          sosRecord.test !== true
+          sosRecord.resolved !== true
         ) {
-          const dedupKey = `${cleanId}:${sosRecord.id}`;
+          const dedupKey = `${cleanId}:${sosRecord.id}:${sosRecord.pushedAt || 0}`;
           if (!notifiedKeysRef.current.has(dedupKey)) {
             notifiedKeysRef.current.add(dedupKey);
-            addSessionNotifiedKey(dedupKey);
+            setIsAlarmMutedByUser(false);
             onNewSosCallbackRef.current?.(sosRecord);
           }
         }
@@ -156,7 +140,6 @@ export function useHelmetSosEvents(
         checkAllLoaded();
       },
       () => {
-        // testEvents may not exist on all devices
         testEventsLoaded = true;
         checkAllLoaded();
       }
@@ -169,25 +152,115 @@ export function useHelmetSosEvents(
     };
   }, [cleanId, configured, authUser?.uid]);
 
-  // Active Emergency SOS: Strictly active=true, resolved=false, test=false
-  const activeEmergencySos = useMemo(() => {
+  // Determine Active Emergency SOS from `/helmets/{deviceId}/sos` (active=true, resolved=false)
+  // OR from `/helmets/{deviceId}/status/sosPending === true`
+  const activeEmergencySos = useMemo<FirebaseSosEventRecord | null>(() => {
     if (
       latestSos &&
       latestSos.active === true &&
-      latestSos.resolved !== true &&
-      latestSos.test !== true
+      latestSos.resolved !== true
     ) {
       return latestSos;
     }
-    return null;
-  }, [latestSos]);
 
-  // Merge and strictly isolate Real SOS Events vs Test Events (Requirement 3 & 7)
+    if (telemetry?.sosPending === true) {
+      const gpsLat = telemetry.gps?.lat ?? telemetry.gps?.lastLat;
+      const gpsLon = telemetry.gps?.lon ?? telemetry.gps?.lastLon;
+      const hasCoords =
+        typeof gpsLat === 'number' &&
+        typeof gpsLon === 'number' &&
+        !(gpsLat === 0 && gpsLon === 0);
+
+      return {
+        id: latestSos?.id || 'sos_pending',
+        deviceId: cleanId,
+        type: 'SOS',
+        test: false,
+        sourceNode: 'sos',
+        active: true,
+        resolved: false,
+        pushedAt:
+          typeof telemetry.lastSeen === 'number'
+            ? telemetry.lastSeen
+            : Date.now(),
+        answeredBy: latestSos?.answeredBy ?? 0,
+        loc: {
+          type:
+            telemetry.gps?.valid === true && hasCoords
+              ? 'CURRENT'
+              : hasCoords
+              ? 'OLD'
+              : 'NONE',
+          lat: hasCoords ? gpsLat : undefined,
+          lon: hasCoords ? gpsLon : undefined,
+          mapUrl: hasCoords
+            ? `https://www.google.com/maps?q=${gpsLat!.toFixed(
+                6
+              )},${gpsLon!.toFixed(6)}`
+            : undefined,
+        },
+        sms: latestSos?.sms ?? { sent: 0, targets: 0 },
+        calls: latestSos?.calls ?? [],
+      };
+    }
+
+    return null;
+  }, [latestSos, telemetry, cleanId]);
+
+  // Pre-unlock AudioContext & HTML5 Audio on first user click anywhere on the page.
+  // If an SOS is currently active and was blocked by browser Autoplay, immediately start playing on that first click!
+  useEffect(() => {
+    const cleanup = registerGlobalAudioUnlock(() => {
+      if (activeEmergencySos && !isAlarmMutedByUser) {
+        startSosSirenAlarm().then((res) => {
+          setIsAlarmPlaying(res.playing);
+          setAutoplayBlocked(res.autoplayBlocked);
+        });
+      }
+    });
+    return cleanup;
+  }, [activeEmergencySos, isAlarmMutedByUser]);
+
+  // Automatically start/stop HTML5 Audio Siren Loop whenever `activeEmergencySos` changes
+  useEffect(() => {
+    if (activeEmergencySos && !isAlarmMutedByUser) {
+      startSosSirenAlarm().then((res) => {
+        setIsAlarmPlaying(res.playing);
+        setAutoplayBlocked(res.autoplayBlocked);
+      });
+    } else {
+      stopSosSirenAlarm();
+      setIsAlarmPlaying(false);
+      setAutoplayBlocked(false);
+    }
+
+    return () => {
+      stopSosSirenAlarm();
+    };
+  }, [activeEmergencySos, isAlarmMutedByUser]);
+
+  const enableOrToggleAudioAlarm = useCallback(async () => {
+    if (!activeEmergencySos) return;
+
+    if (isAlarmPlaying) {
+      // User manually muted the siren while viewing the alert
+      stopSosSirenAlarm();
+      setIsAlarmPlaying(false);
+      setAutoplayBlocked(false);
+      setIsAlarmMutedByUser(true);
+    } else {
+      setIsAlarmMutedByUser(false);
+      const res = await startSosSirenAlarm();
+      setIsAlarmPlaying(res.playing);
+      setAutoplayBlocked(res.autoplayBlocked);
+    }
+  }, [activeEmergencySos, isAlarmPlaying]);
+
+  // Merge and isolate Real SOS Events vs Test Events
   const { realSosEvents, testSosEvents } = useMemo(() => {
     const realMap = new Map<string, FirebaseSosEventRecord>();
     const testMap = new Map<string, FirebaseSosEventRecord>();
 
-    // 1. From /events/{eventId}
     rawEventsNode.forEach((evt) => {
       if (evt.test) {
         testMap.set(evt.id, evt);
@@ -196,12 +269,10 @@ export function useHelmetSosEvents(
       }
     });
 
-    // 2. From /testEvents/{eventId} (Always isolated as test events)
     rawTestEventsNode.forEach((evt) => {
       testMap.set(evt.id, { ...evt, test: true, sourceNode: 'testEvents' });
     });
 
-    // 3. Merge latest /sos state (active/resolved/resolvedAt) into matching event or prepend if missing
     if (latestSos) {
       if (latestSos.test) {
         const existing = testMap.get(latestSos.id);
@@ -238,6 +309,12 @@ export function useHelmetSosEvents(
     async (eventId: string, resolverName?: string) => {
       setResolvingId(eventId);
       setError(null);
+      // Immediately stop the siren audio alarm when user clicks "Tắt cảnh báo / Xác nhận"
+      stopSosSirenAlarm();
+      setIsAlarmPlaying(false);
+      setAutoplayBlocked(false);
+      setIsAlarmMutedByUser(false);
+
       try {
         await resolveSosIncidentTransaction(
           cleanId,
@@ -263,9 +340,13 @@ export function useHelmetSosEvents(
     activeEmergencySos,
     realSosEvents,
     testSosEvents,
+    isAlarmPlaying,
+    autoplayBlocked,
+    isAlarmMutedByUser,
     loading,
     resolvingId,
     error,
     resolveSos,
+    enableOrToggleAudioAlarm,
   };
 }

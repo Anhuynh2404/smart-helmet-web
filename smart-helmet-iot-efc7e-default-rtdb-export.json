@@ -1,0 +1,1210 @@
+{
+  "helmets": {
+    "helmet01": {
+      "batteryState": {
+        "isCharging": false,
+        "lastEspUptimeSec": 45,
+        "lastTimestampMs": 1795564392395,
+        "percentage": 5,
+        "soc": 5,
+        "voltageV": 3.42
+      },
+      "config": {
+        "configVersion": 8,
+        "contacts": {
+          "p1": "+84559155754",
+          "p2": "+84376087754"
+        },
+        "mode": "helmet",
+        "modeLabel": "Mũ bảo hiểm",
+        "thresholds": {
+          "cancelWindowSec": 15,
+          "gyroThresholdDps": 180,
+          "impactThresholdG": 3.2,
+          "tiltAngleThresholdDeg": 60
+        },
+        "updatedAt": 1795562684675
+      },
+      "contactsInitialized": true,
+      "contactsUpdatedAt": 1795559776368,
+      "emergencyContacts": {
+        "contact_1795555907099": {
+          "callEnabled": true,
+          "id": "contact_1795555907099",
+          "name": "AnHC",
+          "phone": "0559155754",
+          "priority": 1,
+          "relationship": "Bố",
+          "smsEnabled": true,
+          "updatedAt": 1795559776131
+        },
+        "contact_1795556417810": {
+          "callEnabled": true,
+          "id": "contact_1795556417810",
+          "name": "Hehe",
+          "phone": "0376087754",
+          "priority": 2,
+          "relationship": "Mẹ",
+          "smsEnabled": true,
+          "updatedAt": 1795556417810
+        }
+      },
+      "events": {
+        "033e3290": {
+          "answeredBy": 0,
+          "bootIndex": 1,
+          "calls": [
+            {
+              "phone": "+84947426157",
+              "priority": 1,
+              "result": "NO_ANSWER"
+            }
+          ],
+          "id": "033e3290",
+          "loc": {
+            "lat": 15.9581785,
+            "lon": 108.2560122,
+            "mapUrl": "https://www.google.com/maps?q=15.958179,108.256012",
+            "type": "CURRENT",
+            "utc": "20261124 083716"
+          },
+          "pushedAt": 1795509487838,
+          "sms": {
+            "sent": 1,
+            "targets": 1
+          },
+          "test": false,
+          "type": "SOS"
+        },
+        "055ce998": {
+          "answeredBy": 0,
+          "bootIndex": 2,
+          "calls": [
+            {
+              "phone": "+84947426157",
+              "priority": 1,
+              "result": "NOT_CALLED"
+            }
+          ],
+          "id": "055ce998",
+          "loc": {
+            "lat": 15.95812783,
+            "lon": 108.2556828,
+            "mapUrl": "https://www.google.com/maps?q=15.958128,108.255683",
+            "type": "CURRENT",
+            "utc": "20261122 134933"
+          },
+          "pushedAt": 1795355379348,
+          "sms": {
+            "sent": 0,
+            "targets": 1
+          },
+          "test": true,
+          "type": "SOS"
+        },
+        "440cb3e8": {
+          "answeredBy": 0,
+          "bootIndex": 1,
+          "calls": [
+            {
+              "phone": "+84947426157",
+              "priority": 1,
+              "result": "NOT_CALLED"
+            }
+          ],
+          "id": "440cb3e8",
+          "loc": {
+            "lat": 15.95814767,
+            "lon": 108.2557003,
+            "mapUrl": "https://www.google.com/maps?q=15.958148,108.255700",
+            "type": "CURRENT",
+            "utc": "20261122 124155"
+          },
+          "pushedAt": 1795351320397,
+          "sms": {
+            "sent": 0,
+            "targets": 1
+          },
+          "test": true,
+          "type": "SOS"
+        },
+        "5872a783": {
+          "answeredBy": 0,
+          "bootIndex": 4,
+          "calls": [
+            {
+              "phone": "+84947426157",
+              "priority": 1,
+              "result": "NO_ANSWER"
+            }
+          ],
+          "id": "5872a783",
+          "loc": {
+            "lat": 15.9580865,
+            "lon": 108.2557042,
+            "mapUrl": "https://www.google.com/maps?q=15.958087,108.255704",
+            "type": "CURRENT",
+            "utc": "20261124 084717"
+          },
+          "mode": "STANDARD",
+          "pushedAt": 1795510077720,
+          "sms": {
+            "sent": 1,
+            "targets": 1
+          },
+          "test": false,
+          "type": "SOS"
+        },
+        "62bda6c7": {
+          "answeredBy": 0,
+          "bootIndex": 1,
+          "calls": [
+            {
+              "phone": "+84947426157",
+              "priority": 1,
+              "result": "NOT_CALLED"
+            }
+          ],
+          "id": "62bda6c7",
+          "loc": {
+            "lat": 15.9581215,
+            "lon": 108.2556462,
+            "mapUrl": "https://www.google.com/maps?q=15.958122,108.255646",
+            "type": "CURRENT",
+            "utc": "20261123 142405"
+          },
+          "pushedAt": 1795443914711,
+          "sms": {
+            "sent": 0,
+            "targets": 1
+          },
+          "test": false,
+          "type": "SOS"
+        },
+        "62db2e1d": {
+          "answeredBy": 0,
+          "bootIndex": 1,
+          "calls": [
+            {
+              "phone": "+84947426157",
+              "priority": 1,
+              "result": "FAILED"
+            }
+          ],
+          "id": "62db2e1d",
+          "loc": {
+            "lat": 15.95808783,
+            "lon": 108.2556782,
+            "mapUrl": "https://www.google.com/maps?q=15.958088,108.255678",
+            "type": "CURRENT",
+            "utc": "20261124 064359"
+          },
+          "pushedAt": 1795502671753,
+          "sms": {
+            "sent": 1,
+            "targets": 1
+          },
+          "test": false,
+          "type": "SOS"
+        },
+        "7dcc961f": {
+          "answeredBy": 0,
+          "bootIndex": 1,
+          "calls": [
+            {
+              "phone": "+84947426157",
+              "priority": 1,
+              "result": "NO_ANSWER"
+            }
+          ],
+          "id": "7dcc961f",
+          "loc": {
+            "lat": 15.95808717,
+            "lon": 108.2557223,
+            "mapUrl": "https://www.google.com/maps?q=15.958087,108.255722",
+            "type": "CURRENT",
+            "utc": "20261124 070536"
+          },
+          "pushedAt": 1795503957539,
+          "sms": {
+            "sent": 1,
+            "targets": 1
+          },
+          "test": false,
+          "type": "SOS"
+        },
+        "80b5e145": {
+          "active": false,
+          "answeredBy": 0,
+          "bootIndex": 2,
+          "calls": [
+            {
+              "phone": "+84947426157",
+              "priority": 1,
+              "result": "NOT_CALLED"
+            }
+          ],
+          "id": "80b5e145",
+          "loc": {
+            "lat": 15.95813,
+            "lon": 108.2557015,
+            "mapUrl": "https://www.google.com/maps?q=15.958130,108.255702",
+            "type": "OLD",
+            "utc": "20261124 122511"
+          },
+          "mode": "SILENT",
+          "pushedAt": 1795523155714,
+          "resolved": true,
+          "resolvedAt": 1795564370344,
+          "resolvedBy": "AnHC",
+          "sms": {
+            "sent": 1,
+            "targets": 1
+          },
+          "test": false,
+          "type": "SOS"
+        },
+        "add03e1b": {
+          "answeredBy": 0,
+          "bootIndex": 2,
+          "calls": [
+            {
+              "phone": "+84947426157",
+              "priority": 1,
+              "result": "NOT_CALLED"
+            }
+          ],
+          "id": "add03e1b",
+          "loc": {
+            "lat": 15.9581335,
+            "lon": 108.2556797,
+            "mapUrl": "https://www.google.com/maps?q=15.958134,108.255680",
+            "type": "CURRENT",
+            "utc": "20261122 132547"
+          },
+          "pushedAt": 1795353953847,
+          "sms": {
+            "sent": 0,
+            "targets": 1
+          },
+          "test": true,
+          "type": "SOS"
+        },
+        "b6b9e49e": {
+          "answeredBy": 0,
+          "bootIndex": 1,
+          "calls": [
+            {
+              "phone": "+84947426157",
+              "priority": 1,
+              "result": "NO_ANSWER"
+            }
+          ],
+          "id": "b6b9e49e",
+          "loc": {
+            "lat": 15.95807533,
+            "lon": 108.2557307,
+            "mapUrl": "https://www.google.com/maps?q=15.958075,108.255731",
+            "type": "CURRENT",
+            "utc": "20261124 070807"
+          },
+          "pushedAt": 1795504129246,
+          "sms": {
+            "sent": 1,
+            "targets": 1
+          },
+          "test": false,
+          "type": "SOS"
+        },
+        "c3471d8d": {
+          "answeredBy": 0,
+          "bootIndex": 1,
+          "calls": [
+            {
+              "phone": "+84947426157",
+              "priority": 1,
+              "result": "NOT_CALLED"
+            }
+          ],
+          "id": "c3471d8d",
+          "loc": {
+            "lat": 15.95815067,
+            "lon": 108.2557172,
+            "mapUrl": "https://www.google.com/maps?q=15.958151,108.255717",
+            "type": "CURRENT",
+            "utc": "20261123 142914"
+          },
+          "pushedAt": 1795444224015,
+          "sms": {
+            "sent": 0,
+            "targets": 1
+          },
+          "test": false,
+          "type": "SOS"
+        },
+        "ee7aba96": {
+          "answeredBy": 1,
+          "bootIndex": 1,
+          "calls": [
+            {
+              "phone": "+84947426157",
+              "priority": 1,
+              "result": "ANSWERED"
+            }
+          ],
+          "id": "ee7aba96",
+          "loc": {
+            "lat": 15.95813933,
+            "lon": 108.2556853,
+            "mapUrl": "https://www.google.com/maps?q=15.958139,108.255685",
+            "type": "CURRENT",
+            "utc": "20261124 071844"
+          },
+          "pushedAt": 1795504743022,
+          "sms": {
+            "sent": 1,
+            "targets": 1
+          },
+          "test": false,
+          "type": "SOS"
+        },
+        "f629a6e6": {
+          "answeredBy": 0,
+          "bootIndex": 1,
+          "calls": [
+            {
+              "phone": "+84947426157",
+              "priority": 1,
+              "result": "NO_ANSWER"
+            }
+          ],
+          "id": "f629a6e6",
+          "loc": {
+            "lat": 15.95811667,
+            "lon": 108.2556882,
+            "mapUrl": "https://www.google.com/maps?q=15.958117,108.255688",
+            "type": "CURRENT",
+            "utc": "20261124 070011"
+          },
+          "pushedAt": 1795503631380,
+          "sms": {
+            "sent": 1,
+            "targets": 1
+          },
+          "test": false,
+          "type": "SOS"
+        }
+      },
+      "sos": {
+        "active": false,
+        "answeredBy": 0,
+        "bootIndex": 2,
+        "calls": [
+          {
+            "phone": "+84947426157",
+            "priority": 1,
+            "result": "NOT_CALLED"
+          }
+        ],
+        "id": "80b5e145",
+        "loc": {
+          "lat": 15.95813,
+          "lon": 108.2557015,
+          "mapUrl": "https://www.google.com/maps?q=15.958130,108.255702",
+          "type": "OLD",
+          "utc": "20261124 122511"
+        },
+        "mode": "SILENT",
+        "pushedAt": 1795523157412,
+        "resolved": true,
+        "resolvedAt": 1795564370344,
+        "resolvedBy": "AnHC",
+        "sms": {
+          "sent": 1,
+          "targets": 1
+        },
+        "test": false,
+        "type": "SOS"
+      },
+      "status": {
+        "activeContactCount": 2,
+        "autoRealSos": true,
+        "cancelWindowSec": 15,
+        "configNote": "applied",
+        "configVersion": 7,
+        "contactChannels": {
+          "p1": {
+            "callEnabled": true,
+            "priority": 1,
+            "smsEnabled": true
+          },
+          "p2": {
+            "callEnabled": true,
+            "priority": 2,
+            "smsEnabled": true
+          }
+        },
+        "contactConfigVerified": true,
+        "contactSource": "emergencyContacts",
+        "contacts": {
+          "p1": "+84559155754",
+          "p2": "+84376087754"
+        },
+        "contactsUpdatedAt": 1795559776368,
+        "deepSleep": true,
+        "fw": "V2.4.2-dev",
+        "gps": {
+          "lastLat": 15.95807083,
+          "lastLon": 108.2553497,
+          "lastUtcHMS": 230334,
+          "lastUtcYMD": 20261124,
+          "valid": false
+        },
+        "impactThresholdG": 2.5,
+        "imuFault": false,
+        "ip": "10.83.253.146",
+        "lastSeen": 1795561753138,
+        "mode": "wheelchair",
+        "mpu": {
+          "accel": {
+            "x": 0.062256,
+            "y": -0.036377,
+            "z": 1.01129
+          },
+          "gyro": {
+            "x": -1.908397,
+            "y": -0.70229,
+            "z": -2.534351
+          },
+          "gyroMagnitudeDps": 0.131849,
+          "raw": {
+            "x": 0.062256,
+            "y": -0.036377,
+            "z": 1.228516
+          },
+          "sampleUptimeMs": 45801,
+          "tiltDeg": 0.518133,
+          "totalG": 1.013857,
+          "valid": true
+        },
+        "online": true,
+        "simMode": "REAL",
+        "sosPending": false,
+        "sosTestMode": true,
+        "syncReason": "manual",
+        "uptimeS": 45,
+        "wifiRssi": -38
+      },
+      "testEvents": {
+        "0b6a818b": {
+          "answeredBy": 0,
+          "bootIndex": 3,
+          "calls": [
+            {
+              "callEnabled": true,
+              "phone": "+84559155754",
+              "priority": 1,
+              "result": "NO_ANSWER",
+              "smsEnabled": true
+            },
+            {
+              "callEnabled": true,
+              "phone": "+84376087754",
+              "priority": 2,
+              "result": "UNCONFIRMED",
+              "smsEnabled": true
+            }
+          ],
+          "fw": "V2.4.1-dev",
+          "id": "0b6a818b",
+          "loc": {
+            "lat": 15.95812567,
+            "lon": 108.2556827,
+            "mapUrl": "https://www.google.com/maps?q=15.958126,108.255683",
+            "type": "CURRENT",
+            "utc": "20261124 220219"
+          },
+          "mode": "STANDARD",
+          "pushedAt": 1795557793297,
+          "sms": {
+            "gpsUpdatesSubmitted": 0,
+            "initialLocType": "CURRENT",
+            "sent": 2,
+            "targets": 2
+          },
+          "test": true,
+          "type": "SOS"
+        },
+        "19f9ce8e": {
+          "answeredBy": 1,
+          "bootIndex": 5,
+          "calls": [
+            {
+              "callEnabled": true,
+              "phone": "+84559155754",
+              "priority": 1,
+              "result": "ANSWERED",
+              "smsEnabled": true
+            },
+            {
+              "callEnabled": true,
+              "phone": "+84376087754",
+              "priority": 2,
+              "result": "NOT_CALLED",
+              "smsEnabled": true
+            }
+          ],
+          "fw": "V2.4.2-dev",
+          "id": "19f9ce8e",
+          "loc": {
+            "lat": 15.95816317,
+            "lon": 108.255703,
+            "mapUrl": "https://www.google.com/maps?q=15.958163,108.255703",
+            "type": "CURRENT",
+            "utc": "20261124 224935"
+          },
+          "mode": "STANDARD",
+          "pushedAt": 1795560602370,
+          "sms": {
+            "gpsUpdatesSubmitted": 0,
+            "initialLocType": "CURRENT",
+            "sent": 2,
+            "targets": 2
+          },
+          "test": true,
+          "type": "SOS"
+        },
+        "27a3de87": {
+          "answeredBy": 0,
+          "bootIndex": 2,
+          "fw": "V2.4-dev",
+          "id": "27a3de87",
+          "loc": {
+            "lat": 15.95802433,
+            "lon": 108.2557688,
+            "mapUrl": "https://www.google.com/maps?q=15.958024,108.255769",
+            "type": "OLD",
+            "utc": "20261124 211819"
+          },
+          "mode": "STANDARD",
+          "pushedAt": 1795555302923,
+          "sms": {
+            "gpsUpdatesSubmitted": 0,
+            "initialLocType": "OLD",
+            "sent": 0,
+            "targets": 0
+          },
+          "test": true,
+          "type": "SOS"
+        },
+        "2b900158": {
+          "answeredBy": 1,
+          "bootIndex": 15,
+          "calls": [
+            {
+              "callEnabled": true,
+              "phone": "+84559155754",
+              "priority": 1,
+              "result": "ANSWERED",
+              "smsEnabled": true
+            },
+            {
+              "callEnabled": true,
+              "phone": "+84376087754",
+              "priority": 2,
+              "result": "NOT_CALLED",
+              "smsEnabled": true
+            }
+          ],
+          "fw": "V2.4.2-dev",
+          "id": "2b900158",
+          "loc": {
+            "lat": 15.958089,
+            "lon": 108.2554335,
+            "mapUrl": "https://www.google.com/maps?q=15.958089,108.255433",
+            "type": "CURRENT",
+            "utc": "20261124 230749"
+          },
+          "mode": "STANDARD",
+          "pushedAt": 1795561742109,
+          "sms": {
+            "gpsUpdatesSubmitted": 0,
+            "initialLocType": "CURRENT",
+            "sent": 2,
+            "targets": 2
+          },
+          "test": true,
+          "type": "SOS"
+        },
+        "2ea3d655": {
+          "answeredBy": 0,
+          "bootIndex": 2,
+          "fw": "V2.4-dev",
+          "id": "2ea3d655",
+          "loc": {
+            "lat": 15.95802433,
+            "lon": 108.2557688,
+            "mapUrl": "https://www.google.com/maps?q=15.958024,108.255769",
+            "type": "OLD",
+            "utc": "20261124 211819"
+          },
+          "mode": "STANDARD",
+          "pushedAt": 1795555455790,
+          "sms": {
+            "gpsUpdatesSubmitted": 0,
+            "initialLocType": "OLD",
+            "sent": 0,
+            "targets": 0
+          },
+          "test": true,
+          "type": "SOS"
+        },
+        "455027ec": {
+          "answeredBy": 0,
+          "bootIndex": 2,
+          "calls": [
+            {
+              "callEnabled": false,
+              "phone": "+84559155754",
+              "priority": 1,
+              "result": "NOT_CALLED",
+              "smsEnabled": true
+            },
+            {
+              "callEnabled": true,
+              "phone": "+84376087754",
+              "priority": 2,
+              "result": "UNCONFIRMED",
+              "smsEnabled": true
+            }
+          ],
+          "fw": "V2.4.2-dev",
+          "id": "455027ec",
+          "loc": {
+            "lat": 15.95813067,
+            "lon": 108.2556973,
+            "mapUrl": "https://www.google.com/maps?q=15.958131,108.255697",
+            "type": "CURRENT",
+            "utc": "20261124 223547"
+          },
+          "mode": "STANDARD",
+          "pushedAt": 1795559769857,
+          "sms": {
+            "gpsUpdatesSubmitted": 0,
+            "initialLocType": "CURRENT",
+            "sent": 2,
+            "targets": 2
+          },
+          "test": true,
+          "type": "SOS"
+        },
+        "56c481bb": {
+          "answeredBy": 1,
+          "bootIndex": 14,
+          "calls": [
+            {
+              "callEnabled": true,
+              "phone": "+84559155754",
+              "priority": 1,
+              "result": "ANSWERED",
+              "smsEnabled": true
+            },
+            {
+              "callEnabled": true,
+              "phone": "+84376087754",
+              "priority": 2,
+              "result": "NOT_CALLED",
+              "smsEnabled": true
+            }
+          ],
+          "fw": "V2.4.2-dev",
+          "id": "56c481bb",
+          "loc": {
+            "lat": 15.95814117,
+            "lon": 108.2556443,
+            "mapUrl": "https://www.google.com/maps?q=15.958141,108.255644",
+            "type": "CURRENT",
+            "utc": "20261124 230650"
+          },
+          "mode": "STANDARD",
+          "pushedAt": 1795561740436,
+          "sms": {
+            "gpsUpdatesSubmitted": 0,
+            "initialLocType": "CURRENT",
+            "sent": 2,
+            "targets": 2
+          },
+          "test": true,
+          "type": "SOS"
+        },
+        "6ed8e43b": {
+          "answeredBy": 0,
+          "bootIndex": 12,
+          "calls": [
+            {
+              "callEnabled": true,
+              "phone": "+84559155754",
+              "priority": 1,
+              "result": "NO_ANSWER",
+              "smsEnabled": true
+            },
+            {
+              "callEnabled": true,
+              "phone": "+84376087754",
+              "priority": 2,
+              "result": "UNCONFIRMED",
+              "smsEnabled": true
+            }
+          ],
+          "fw": "V2.4.2-dev",
+          "id": "6ed8e43b",
+          "loc": {
+            "lat": 15.95807083,
+            "lon": 108.2553497,
+            "mapUrl": "https://www.google.com/maps?q=15.958071,108.255350",
+            "type": "CURRENT",
+            "utc": "20261124 230334"
+          },
+          "mode": "STANDARD",
+          "pushedAt": 1795561521356,
+          "sms": {
+            "gpsUpdatesSubmitted": 0,
+            "initialLocType": "CURRENT",
+            "sent": 2,
+            "targets": 2
+          },
+          "test": true,
+          "type": "SOS"
+        },
+        "8a43a88e": {
+          "answeredBy": 0,
+          "bootIndex": 3,
+          "fw": "V2.4-dev",
+          "id": "8a43a88e",
+          "loc": {
+            "lat": 15.95812333,
+            "lon": 108.2556323,
+            "mapUrl": "https://www.google.com/maps?q=15.958123,108.255632",
+            "type": "OLD",
+            "utc": "20261124 151616"
+          },
+          "mode": "STANDARD",
+          "pushedAt": 1795534996616,
+          "sms": {
+            "gpsUpdatesSubmitted": 0,
+            "initialLocType": "OLD",
+            "sent": 0,
+            "targets": 0
+          },
+          "test": true,
+          "type": "SOS"
+        },
+        "ad9d98bf": {
+          "answeredBy": 0,
+          "bootIndex": 2,
+          "fw": "V2.4-dev",
+          "id": "ad9d98bf",
+          "loc": {
+            "lat": 15.95802433,
+            "lon": 108.2557688,
+            "mapUrl": "https://www.google.com/maps?q=15.958024,108.255769",
+            "type": "OLD",
+            "utc": "20261124 211819"
+          },
+          "mode": "STANDARD",
+          "pushedAt": 1795555323191,
+          "sms": {
+            "gpsUpdatesSubmitted": 0,
+            "initialLocType": "OLD",
+            "sent": 0,
+            "targets": 0
+          },
+          "test": true,
+          "type": "SOS"
+        },
+        "bf786eeb": {
+          "answeredBy": 0,
+          "bootIndex": 2,
+          "calls": [
+            {
+              "callEnabled": true,
+              "phone": "+84559155754",
+              "priority": 1,
+              "result": "NO_ANSWER",
+              "smsEnabled": true
+            },
+            {
+              "callEnabled": true,
+              "phone": "+84376087754",
+              "priority": 2,
+              "result": "UNCONFIRMED",
+              "smsEnabled": true
+            }
+          ],
+          "fw": "V2.4.2-dev",
+          "id": "bf786eeb",
+          "loc": {
+            "lat": 15.95810833,
+            "lon": 108.2557048,
+            "mapUrl": "https://www.google.com/maps?q=15.958108,108.255705",
+            "type": "CURRENT",
+            "utc": "20261124 223739"
+          },
+          "mode": "STANDARD",
+          "pushedAt": 1795559874885,
+          "sms": {
+            "gpsUpdatesSubmitted": 2,
+            "initialLocType": "OLD",
+            "sent": 2,
+            "targets": 2
+          },
+          "test": true,
+          "type": "SOS"
+        },
+        "d83addc4": {
+          "answeredBy": 0,
+          "bootIndex": 3,
+          "calls": [
+            {
+              "callEnabled": true,
+              "phone": "+84559155754",
+              "priority": 1,
+              "result": "NO_ANSWER",
+              "smsEnabled": true
+            },
+            {
+              "callEnabled": true,
+              "phone": "+84376087754",
+              "priority": 2,
+              "result": "UNCONFIRMED",
+              "smsEnabled": true
+            }
+          ],
+          "fw": "V2.4.2-dev",
+          "id": "d83addc4",
+          "loc": {
+            "lat": 15.95813817,
+            "lon": 108.255667,
+            "mapUrl": "https://www.google.com/maps?q=15.958138,108.255667",
+            "type": "CURRENT",
+            "utc": "20261124 224322"
+          },
+          "mode": "STANDARD",
+          "pushedAt": 1795560295591,
+          "sms": {
+            "gpsUpdatesSubmitted": 0,
+            "initialLocType": "CURRENT",
+            "sent": 2,
+            "targets": 2
+          },
+          "test": true,
+          "type": "SOS"
+        },
+        "e0f5fd6a": {
+          "answeredBy": 1,
+          "bootIndex": 10,
+          "calls": [
+            {
+              "callEnabled": true,
+              "phone": "+84559155754",
+              "priority": 1,
+              "result": "ANSWERED",
+              "smsEnabled": true
+            },
+            {
+              "callEnabled": true,
+              "phone": "+84376087754",
+              "priority": 2,
+              "result": "NOT_CALLED",
+              "smsEnabled": true
+            }
+          ],
+          "fw": "V2.4.2-dev",
+          "id": "e0f5fd6a",
+          "loc": {
+            "lat": 15.958194,
+            "lon": 108.2558682,
+            "mapUrl": "https://www.google.com/maps?q=15.958194,108.255868",
+            "type": "CURRENT",
+            "utc": "20261124 230046"
+          },
+          "mode": "STANDARD",
+          "pushedAt": 1795561271430,
+          "sms": {
+            "gpsUpdatesSubmitted": 0,
+            "initialLocType": "CURRENT",
+            "sent": 2,
+            "targets": 2
+          },
+          "test": true,
+          "type": "SOS"
+        }
+      }
+    },
+    "helmet01_phase34": {
+      "batteryState": {
+        "isCharging": false,
+        "lastEspUptimeSec": 94,
+        "lastTimestampMs": 1795574968827,
+        "percentage": 5,
+        "soc": 5,
+        "voltageV": 3.42
+      },
+      "config": {
+        "configVersion": 12,
+        "contactChannels": {
+          "p1": {
+            "callEnabled": true,
+            "priority": 1,
+            "smsEnabled": true
+          },
+          "p2": {
+            "callEnabled": true,
+            "priority": 2,
+            "smsEnabled": true
+          }
+        },
+        "contacts": {
+          "p1": "+84559155754",
+          "p2": "+84376087754"
+        },
+        "contactsUpdatedAt": 1795559776368,
+        "mode": "helmet",
+        "modeLabel": "Mũ bảo hiểm",
+        "thresholds": {
+          "cancelWindowSec": 15,
+          "gyroThresholdDps": 180,
+          "impactThresholdG": 3.2,
+          "tiltAngleThresholdDeg": 60
+        },
+        "updatedAt": 1795572737580,
+        "version": 12
+      },
+      "contactsInitialized": true,
+      "contactsUpdatedAt": 1795559776368,
+      "emergencyContacts": {
+        "contact_slot_p1": {
+          "callEnabled": true,
+          "id": "contact_slot_p1",
+          "name": "AnHC",
+          "phone": "0559155754",
+          "priority": 1,
+          "relationship": "Bố",
+          "smsEnabled": true,
+          "updatedAt": 1795559776368
+        },
+        "contact_slot_p2": {
+          "callEnabled": true,
+          "id": "contact_slot_p2",
+          "name": "Hehe",
+          "phone": "0376087754",
+          "priority": 2,
+          "relationship": "Mẹ",
+          "smsEnabled": true,
+          "updatedAt": 1795559776368
+        }
+      },
+      "events": {
+        "572c7d07": {
+          "active": false,
+          "answeredBy": 1,
+          "bootIndex": 3,
+          "calls": [
+            {
+              "callEnabled": true,
+              "phone": "+84559155754",
+              "priority": 1,
+              "result": "ANSWERED",
+              "smsEnabled": true
+            },
+            {
+              "callEnabled": true,
+              "phone": "+84376087754",
+              "priority": 2,
+              "result": "NOT_CALLED",
+              "smsEnabled": true
+            }
+          ],
+          "fw": "V2.4.2-dev",
+          "id": "572c7d07",
+          "loc": {
+            "lat": 15.95818417,
+            "lon": 108.255749,
+            "mapUrl": "https://www.google.com/maps?q=15.958184,108.255749",
+            "type": "CURRENT",
+            "utc": "20261124 232244"
+          },
+          "mode": "STANDARD",
+          "pushedAt": 1795562594052,
+          "resolved": true,
+          "resolvedAt": 1795564407553,
+          "resolvedBy": "AnHC",
+          "sms": {
+            "gpsUpdatesSubmitted": 0,
+            "initialLocType": "CURRENT",
+            "sent": 2,
+            "targets": 2
+          },
+          "test": false,
+          "type": "SOS"
+        },
+        "fcf4f340": {
+          "active": false,
+          "answeredBy": 1,
+          "bootIndex": 6,
+          "calls": [
+            {
+              "callEnabled": true,
+              "phone": "+84559155754",
+              "priority": 1,
+              "result": "ANSWERED",
+              "smsEnabled": true
+            },
+            {
+              "callEnabled": true,
+              "phone": "+84376087754",
+              "priority": 2,
+              "result": "NOT_CALLED",
+              "smsEnabled": true
+            }
+          ],
+          "fw": "V2.4.2-dev",
+          "id": "fcf4f340",
+          "loc": {
+            "lat": 15.95808833,
+            "lon": 108.2556722,
+            "mapUrl": "https://www.google.com/maps?q=15.958088,108.255672",
+            "type": "CURRENT",
+            "utc": "20261124 235432"
+          },
+          "mode": "STANDARD",
+          "pushedAt": 1795564498243,
+          "resolved": true,
+          "resolvedAt": 1795564531069,
+          "resolvedBy": "AnHC",
+          "sms": {
+            "gpsUpdatesSubmitted": 0,
+            "initialLocType": "CURRENT",
+            "sent": 2,
+            "targets": 2
+          },
+          "test": false,
+          "type": "SOS"
+        }
+      },
+      "sos": {
+        "active": false,
+        "answeredBy": 1,
+        "bootIndex": 6,
+        "calls": [
+          {
+            "callEnabled": true,
+            "phone": "+84559155754",
+            "priority": 1,
+            "result": "ANSWERED",
+            "smsEnabled": true
+          },
+          {
+            "callEnabled": true,
+            "phone": "+84376087754",
+            "priority": 2,
+            "result": "NOT_CALLED",
+            "smsEnabled": true
+          }
+        ],
+        "fw": "V2.4.2-dev",
+        "id": "fcf4f340",
+        "loc": {
+          "lat": 15.95808833,
+          "lon": 108.2556722,
+          "mapUrl": "https://www.google.com/maps?q=15.958088,108.255672",
+          "type": "CURRENT",
+          "utc": "20261124 235432"
+        },
+        "mode": "STANDARD",
+        "pushedAt": 1795564499569,
+        "resolved": true,
+        "resolvedAt": 1795564531069,
+        "resolvedBy": "AnHC",
+        "sms": {
+          "gpsUpdatesSubmitted": 0,
+          "initialLocType": "CURRENT",
+          "sent": 2,
+          "targets": 2
+        },
+        "test": false,
+        "type": "SOS"
+      },
+      "status": {
+        "activeContactCount": 2,
+        "autoRealSos": false,
+        "cancelWindowSec": 15,
+        "configNote": "applied",
+        "configVersion": 8,
+        "contactChannels": {
+          "p1": {
+            "callEnabled": true,
+            "priority": 1,
+            "smsEnabled": true
+          },
+          "p2": {
+            "callEnabled": true,
+            "priority": 2,
+            "smsEnabled": true
+          }
+        },
+        "contactConfigVerified": true,
+        "contactSource": "emergencyContacts",
+        "contacts": {
+          "p1": "+84559155754",
+          "p2": "+84376087754"
+        },
+        "contactsUpdatedAt": 1795559776368,
+        "deepSleep": true,
+        "fw": "V2.4.4-dev",
+        "gps": {
+          "ageMs": 3,
+          "lat": 15.95810317,
+          "lon": 108.2556725,
+          "type": "CURRENT",
+          "uartOpen": true,
+          "updatedAt": 1795566511443,
+          "valid": true
+        },
+        "imuFault": false,
+        "ip": "10.83.253.146",
+        "lastSeen": 1795566511443,
+        "mpu": {
+          "accel": {
+            "x": 0.054688,
+            "y": -0.042725,
+            "z": 1.007699
+          },
+          "gyro": {
+            "x": -1.908397,
+            "y": -0.778626,
+            "z": -2.671756
+          },
+          "gyroMagnitudeDps": 0.201547,
+          "raw": {
+            "x": 0.054688,
+            "y": -0.042725,
+            "z": 1.224854
+          },
+          "sampleUptimeMs": 94904,
+          "tiltDeg": 0.772278,
+          "totalG": 1.010086,
+          "valid": true
+        },
+        "online": true,
+        "parallelSos": false,
+        "simMode": "MOCK",
+        "sosPending": false,
+        "sosTestMode": true,
+        "syncReason": "manual",
+        "uptimeS": 94,
+        "wifiRssi": -28
+      }
+    }
+  }
+}
