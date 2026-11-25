@@ -16,7 +16,10 @@ import {
   X,
 } from 'lucide-react';
 import { AuthProfileView } from './components/AuthProfileView';
-import { DashboardView } from './components/DashboardView';
+import {
+  DashboardView,
+  formatFriendlyDeviceName,
+} from './components/DashboardView';
 import { DeviceSettingsView } from './components/DeviceSettingsView';
 import { EmergencyContactsView } from './components/EmergencyContactsView';
 import { EventHistoryView } from './components/EventHistoryView';
@@ -149,7 +152,9 @@ export function App() {
   const handleNewEmergencySosDetected = useCallback(
     (sos: FirebaseSosEventRecord) => {
       showToast(
-        `[KHẨN CẤP] Phát hiện tín hiệu SOS mới (#${sos.id}) trên thiết bị ${sos.deviceId}!`
+        `[KHẨN CẤP] Phát hiện tín hiệu cầu cứu SOS trên ${formatFriendlyDeviceName(
+          sos.deviceId
+        )}!`
       );
     },
     [showToast]
@@ -271,7 +276,9 @@ export function App() {
   const handleResolveSosIncident = async (eventId: string) => {
     await resolveSos(eventId, currentUser.fullName);
     showToast(
-      `Đã xác nhận xử lý SOS #${eventId} trên thiết bị ${targetDeviceId} (active=false, resolved=true).`
+      `Đã xác nhận hỗ trợ an toàn cho ${formatFriendlyDeviceName(
+        targetDeviceId
+      )}.`
     );
   };
 
@@ -376,7 +383,7 @@ export function App() {
                   CAS-BOX
                 </div>
                 <div className="text-[11px] text-slate-400 mt-0.5">
-                  Phase 3.4 • V2.4.2-dev
+                  An toàn hành trình
                 </div>
               </div>
             </div>
@@ -470,28 +477,30 @@ export function App() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2.5">
-              {/* Requirement 1: Multi-Device Selector (/helmets/{deviceId}) */}
+              {/* Multi-Device Selector (Friendly End-User Display) */}
               <div className="flex items-center gap-1.5 rounded-lg border border-[#91D5FF] bg-[#E6F7FF]/60 px-2.5 py-1 text-xs">
                 <Cpu className="h-3.5 w-3.5 text-[#1890FF] shrink-0" />
                 <span className="font-semibold text-[#0050B3] hidden md:inline">
                   Thiết bị:
                 </span>
                 <select
-                  aria-label="Chọn thiết bị SmartHelmet"
+                  aria-label="Chọn thiết bị CAS-BOX"
                   value={targetDeviceId}
                   onChange={(e) => {
-                    handleSelectDevice(e.target.value);
+                    const nextId = e.target.value;
+                    handleSelectDevice(nextId);
                     showToast(
-                      `Đã chuyển sang theo dõi thiết bị: ${e.target.value}`
+                      `Đã chuyển sang theo dõi ${formatFriendlyDeviceName(
+                        nextId
+                      )}`
                     );
                   }}
-                  className="bg-transparent font-mono font-bold text-[#002766] focus:outline-none cursor-pointer pr-1"
+                  className="bg-transparent font-bold text-[#002766] focus:outline-none cursor-pointer pr-1"
                 >
                   {availableDevices.map((dev) => (
                     <option key={dev.deviceId} value={dev.deviceId}>
-                      {dev.deviceId}
-                      {dev.fw && dev.fw !== '--' ? ` (${dev.fw})` : ''}
-                      {dev.hasActiveSos ? ' [🔴 SOS!]' : ''}
+                      {formatFriendlyDeviceName(dev.deviceId)}
+                      {dev.hasActiveSos ? ' (🔴 Có cảnh báo SOS!)' : ''}
                     </option>
                   ))}
                 </select>
@@ -506,11 +515,14 @@ export function App() {
                   className="inline-flex items-center gap-1.5 rounded-lg bg-[#F5222D] px-2.5 py-1 text-xs font-bold text-white hover:bg-[#CF1322] transition animate-pulse"
                 >
                   <AlertOctagon className="h-3.5 w-3.5" />
-                  <span>SOS trên {d.deviceId}! Xem ngay</span>
+                  <span>
+                    Cảnh báo SOS trên {formatFriendlyDeviceName(d.deviceId)}!
+                    Xem ngay
+                  </span>
                 </button>
               ))}
 
-              {/* Real Firebase Connection, Mode & Battery Pill */}
+              {/* Connection, Mode & Battery Pill */}
               <div className="hidden sm:flex items-center gap-2 rounded-md border border-[#E8E8E8] bg-[#FAFAFA] px-3 py-1.5 text-xs">
                 <span
                   className={`rounded px-1.5 py-0.5 text-[11px] font-bold border ${activeModeProfile.badgeBg} ${activeModeProfile.badgeText} ${activeModeProfile.badgeBorder}`}
@@ -537,12 +549,12 @@ export function App() {
                   }`}
                 >
                   {telemetryLoading
-                    ? 'Đang tải...'
+                    ? 'Đang kết nối...'
                     : !telemetry
-                    ? 'Chưa có dữ liệu'
+                    ? 'Chưa có tín hiệu'
                     : isStale
-                    ? 'Offline'
-                    : 'Online'}
+                    ? 'Ngoại tuyến'
+                    : 'Đang trực tuyến'}
                 </span>
                 <span className="text-slate-300">|</span>
                 <span
@@ -588,15 +600,14 @@ export function App() {
               <AlertOctagon className="h-4 w-4 text-[#F5222D] animate-pulse shrink-0" />
               <span>
                 <strong>
-                  CẢNH BÁO SOS KHẨN CẤP (#{activeEmergencySos.id}) trên{' '}
-                  {activeEmergencySos.deviceId}:
+                  CẢNH BÁO KHẨN CẤP SOS trên{' '}
+                  {formatFriendlyDeviceName(activeEmergencySos.deviceId)}:
                 </strong>{' '}
-                GPS {activeEmergencySos.loc.type} • SMS{' '}
-                {activeEmergencySos.sms.sent}/{activeEmergencySos.sms.targets} •
-                answeredBy:{' '}
+                Đã gửi tin nhắn tới {activeEmergencySos.sms.sent}/
+                {activeEmergencySos.sms.targets} người thân •{' '}
                 {activeEmergencySos.answeredBy > 0
-                  ? `#${activeEmergencySos.answeredBy}`
-                  : '0'}
+                  ? `Người thân ưu tiên #${activeEmergencySos.answeredBy} đã bắt máy`
+                  : 'Chưa có người bắt máy'}
               </span>
             </div>
             <div className="flex items-center gap-2">
@@ -607,7 +618,7 @@ export function App() {
                   rel="noreferrer"
                   className="inline-flex items-center gap-1 rounded bg-white border border-[#1890FF] px-2.5 py-1 font-semibold text-[#1890FF]"
                 >
-                  <span>Google Maps</span>
+                  <span>Mở bản đồ</span>
                   <ArrowUpRight className="h-3 w-3" />
                 </a>
               )}
@@ -618,7 +629,7 @@ export function App() {
                 className="inline-flex items-center gap-1 rounded bg-[#52C41A] px-3 py-1 font-bold text-white hover:bg-[#389E0D]"
               >
                 <Check className="h-3.5 w-3.5" />
-                <span>Xác nhận đã xử lý</span>
+                <span>Xác nhận đã hỗ trợ an toàn</span>
               </button>
             </div>
           </div>
@@ -670,12 +681,10 @@ export function App() {
               modeConfigVersion={modeConfigVersion}
               modeSyncState={modeSyncState}
               onSelectMode={async (newMode) => {
-                const res = await handleSelectOperatingMode(newMode);
+                await handleSelectOperatingMode(newMode);
                 const modeLabel =
                   allModes.find((m) => m.id === newMode)?.label || newMode;
-                showToast(
-                  `Đã gửi cấu hình chế độ "${modeLabel}" (v${res.version}) lên /helmets/${targetDeviceId}/config.`
-                );
+                showToast(`Đã chuyển sang chế độ bảo vệ "${modeLabel}".`);
               }}
               onCancelByButton={handleCancelByButton}
               onCancelByPosture={handleCancelByPosture}
@@ -695,12 +704,10 @@ export function App() {
               activeModeProfile={activeModeProfile}
               allModes={allModes}
               onSelectMode={async (newMode) => {
-                const res = await handleSelectOperatingMode(newMode);
+                await handleSelectOperatingMode(newMode);
                 const modeLabel =
                   allModes.find((m) => m.id === newMode)?.label || newMode;
-                showToast(
-                  `Đã chuyển sang chế độ "${modeLabel}" (v${res.version}) và cập nhật Marker bản đồ.`
-                );
+                showToast(`Đã chuyển sang chế độ bảo vệ "${modeLabel}".`);
               }}
             />
           )}
@@ -729,39 +736,27 @@ export function App() {
               currentUserRole={currentUser.role}
               onAddContact={async (input) => {
                 await fbAddContact(input);
-                showToast(
-                  `Đã thêm ${input.name} vào /helmets/${targetDeviceId}/emergencyContacts.`
-                );
+                showToast(`Đã thêm ${input.name} vào danh sách người thân.`);
               }}
               onUpdateContact={async (updated) => {
                 await fbUpdateContact(updated);
-                showToast(
-                  `Đã cập nhật ${updated.name} trên /helmets/${targetDeviceId}/emergencyContacts.`
-                );
+                showToast(`Đã cập nhật thông tin liên hệ của ${updated.name}.`);
               }}
               onDeleteContact={async (id) => {
                 await fbDeleteContact(id);
-                showToast(
-                  `Đã xóa liên hệ khỏi /helmets/${targetDeviceId}/emergencyContacts.`
-                );
+                showToast('Đã xóa người thân khỏi danh sách nhận tin.');
               }}
               onReorderPriority={async (id, direction) => {
                 await fbReorderPriority(id, direction);
-                showToast(
-                  `Đã cập nhật thứ tự ưu tiên danh bạ của ${targetDeviceId}.`
-                );
+                showToast('Đã cập nhật thứ tự ưu tiên liên hệ khẩn cấp.');
               }}
               onSeedSampleContacts={async () => {
                 await fbSeedSampleContacts();
-                showToast(
-                  `Đã khởi tạo danh bạ chuẩn cho thiết bị ${targetDeviceId}.`
-                );
+                showToast('Đã khôi phục danh bạ người thân từ thiết bị.');
               }}
               onForceResync={async () => {
                 await fbForceResyncContacts();
-                showToast(
-                  `Đã đẩy lại cấu hình danh bạ (contactsUpdatedAt & configVersion) cho ${targetDeviceId}.`
-                );
+                showToast('Đã gửi yêu cầu đồng bộ danh bạ xuống thiết bị.');
               }}
             />
           )}

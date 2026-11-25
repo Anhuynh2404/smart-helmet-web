@@ -5,15 +5,12 @@ import {
   ArrowUpRight,
   Check,
   CheckCircle2,
-  Clock,
   FlaskConical,
   Loader2,
   MapPin,
   MessageSquare,
-  Phone,
   PhoneCall,
   Search,
-  ShieldAlert,
   X,
 } from 'lucide-react';
 import { formatToVietnamTimezone } from '../hooks/useHelmetTelemetry';
@@ -23,6 +20,7 @@ import {
   FirebaseSosCallAttempt,
   FirebaseSosEventRecord,
 } from '../types/helmet';
+import { formatFriendlyDeviceName } from './DashboardView';
 
 interface EventHistoryViewProps {
   deviceId: string;
@@ -34,6 +32,13 @@ interface EventHistoryViewProps {
   onResolveSos: (eventId: string) => Promise<void>;
 }
 
+function cleanTimeText(raw: string): string {
+  return raw
+    .replace(/\s*\(UTC\+7\)/g, '')
+    .replace(/\s*\[Gốc:.*\]/g, '')
+    .trim();
+}
+
 export const EventHistoryView: React.FC<EventHistoryViewProps> = ({
   deviceId,
   realSosEvents,
@@ -43,14 +48,13 @@ export const EventHistoryView: React.FC<EventHistoryViewProps> = ({
   error,
   onResolveSos,
 }) => {
-  // Requirement 7: Tách biệt hoàn toàn testEvents khỏi SOS thật
-  const [activeCategory, setActiveCategory] = useState<'REAL_SOS' | 'TEST_EVENTS'>(
-    'REAL_SOS'
-  );
+  const [activeCategory, setActiveCategory] = useState<
+    'REAL_SOS' | 'TEST_EVENTS'
+  >('REAL_SOS');
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'RESOLVED'>(
-    'ALL'
-  );
+  const [statusFilter, setStatusFilter] = useState<
+    'ALL' | 'ACTIVE' | 'RESOLVED'
+  >('ALL');
   const [selectedEvent, setSelectedEvent] =
     useState<FirebaseSosEventRecord | null>(null);
 
@@ -68,47 +72,46 @@ export const EventHistoryView: React.FC<EventHistoryViewProps> = ({
     const q = searchQuery.trim().toLowerCase();
     if (!q) return true;
 
-    const matchId = evt.id.toLowerCase().includes(q);
-    const matchMode = (evt.mode || '').toLowerCase().includes(q);
-    const matchFw = (evt.fw || '').toLowerCase().includes(q);
-    const matchLoc = (evt.loc.type || '').toLowerCase().includes(q);
-    const matchPhone = evt.calls.some((c) =>
-      c.phone.toLowerCase().includes(q)
+    const matchPhone = evt.calls.some(
+      (c) =>
+        c.phone.toLowerCase().includes(q) ||
+        formatPhoneForDisplay(c.phone).toLowerCase().includes(q)
     );
-    return matchId || matchMode || matchFw || matchLoc || matchPhone;
+    const matchId = evt.id.toLowerCase().includes(q);
+    return matchPhone || matchId;
   });
 
   const renderCallResultBadge = (result: string) => {
     switch (result) {
       case 'ANSWERED':
         return (
-          <span className="inline-flex items-center gap-1 rounded bg-[#F6FFED] border border-[#B7EB8F] px-2 py-0.5 text-[11px] font-semibold text-[#389E0D]">
+          <span className="inline-flex items-center gap-1 rounded bg-[#F6FFED] border border-[#B7EB8F] px-2.5 py-0.5 text-[11px] font-semibold text-[#389E0D]">
             <Check className="h-3 w-3" />
-            ANSWERED (Đã nghe máy)
+            Đã nghe máy
           </span>
         );
       case 'NO_ANSWER':
         return (
-          <span className="inline-flex items-center gap-1 rounded bg-[#FFF7E6] border border-[#FFD591] px-2 py-0.5 text-[11px] font-semibold text-[#D46B08]">
-            NO_ANSWER (Không bắt máy)
+          <span className="inline-flex items-center gap-1 rounded bg-[#FFF7E6] border border-[#FFD591] px-2.5 py-0.5 text-[11px] font-semibold text-[#D46B08]">
+            Không bắt máy
           </span>
         );
       case 'UNCONFIRMED':
         return (
-          <span className="inline-flex items-center gap-1 rounded bg-[#FFFBE6] border border-[#FFE58F] px-2 py-0.5 text-[11px] font-semibold text-[#AD6800]">
-            UNCONFIRMED (Chưa xác nhận)
+          <span className="inline-flex items-center gap-1 rounded bg-[#FFFBE6] border border-[#FFE58F] px-2.5 py-0.5 text-[11px] font-semibold text-[#AD6800]">
+            Chưa xác nhận cuộc gọi
           </span>
         );
       case 'FAILED':
         return (
-          <span className="inline-flex items-center gap-1 rounded bg-[#FFF1F0] border border-[#FFA39E] px-2 py-0.5 text-[11px] font-semibold text-[#CF1322]">
-            FAILED (Gọi thất bại)
+          <span className="inline-flex items-center gap-1 rounded bg-[#FFF1F0] border border-[#FFA39E] px-2.5 py-0.5 text-[11px] font-semibold text-[#CF1322]">
+            Không kết nối được
           </span>
         );
       default:
         return (
-          <span className="inline-flex items-center gap-1 rounded bg-[#FAFAFA] border border-[#D9D9D9] px-2 py-0.5 text-[11px] font-medium text-[#595959]">
-            NOT_CALLED (Chưa gọi)
+          <span className="inline-flex items-center gap-1 rounded bg-[#FAFAFA] border border-[#D9D9D9] px-2.5 py-0.5 text-[11px] font-medium text-[#595959]">
+            Chưa gọi
           </span>
         );
     }
@@ -119,7 +122,7 @@ export const EventHistoryView: React.FC<EventHistoryViewProps> = ({
       return (
         <span className="inline-flex items-center gap-1 rounded bg-[#F6FFED] border border-[#B7EB8F] px-2 py-0.5 text-[11px] font-semibold text-[#389E0D]">
           <MapPin className="h-3 w-3" />
-          GPS: CURRENT (Tọa độ mới)
+          Vị trí trực tiếp
         </span>
       );
     }
@@ -127,28 +130,27 @@ export const EventHistoryView: React.FC<EventHistoryViewProps> = ({
       return (
         <span className="inline-flex items-center gap-1 rounded bg-[#FFF7E6] border border-[#FFD591] px-2 py-0.5 text-[11px] font-semibold text-[#D46B08]">
           <MapPin className="h-3 w-3" />
-          GPS: OLD (Tọa độ lưu gần nhất)
+          Vị trí lưu gần nhất
         </span>
       );
     }
     return (
       <span className="inline-flex items-center gap-1 rounded bg-[#FFF1F0] border border-[#FFA39E] px-2 py-0.5 text-[11px] font-semibold text-[#CF1322]">
         <MapPin className="h-3 w-3" />
-        GPS: NONE (Không có tọa độ)
+        Chưa xác định vị trí
       </span>
     );
   };
 
   const formatPushedAt = (ms?: number) => {
-    if (!ms || !Number.isFinite(ms)) return 'Chưa rõ thời điểm upload';
-    return formatToVietnamTimezone(new Date(ms), true);
+    if (!ms || !Number.isFinite(ms)) return 'Chưa rõ thời gian';
+    return cleanTimeText(formatToVietnamTimezone(new Date(ms), true));
   };
 
   return (
     <div className="space-y-4">
-      {/* Main Container Card */}
       <div className="rounded-lg border border-[#E8E8E8] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.03)]">
-        {/* Top Category Tabs: Real SOS Events vs Isolated Test Events */}
+        {/* Top Category Tabs */}
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 px-6 pt-4 pb-3 border-b border-[#F0F0F0]">
           <div className="flex flex-wrap items-center gap-2">
             <button
@@ -161,7 +163,7 @@ export const EventHistoryView: React.FC<EventHistoryViewProps> = ({
               }`}
             >
               <AlertOctagon className="h-4 w-4" />
-              <span>Sự cố SOS thật ({realSosEvents.length})</span>
+              <span>Sự cố khẩn cấp ({realSosEvents.length})</span>
             </button>
 
             <button
@@ -174,9 +176,7 @@ export const EventHistoryView: React.FC<EventHistoryViewProps> = ({
               }`}
             >
               <FlaskConical className="h-4 w-4" />
-              <span>
-                Sự kiện Kiểm thử / testEvents ({testSosEvents.length})
-              </span>
+              <span>Lịch sử kiểm tra thiết bị ({testSosEvents.length})</span>
             </button>
           </div>
 
@@ -187,7 +187,7 @@ export const EventHistoryView: React.FC<EventHistoryViewProps> = ({
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Tìm theo Event ID, SĐT, Mode..."
+                placeholder="Tìm theo số điện thoại người thân..."
                 className="w-full rounded-md border border-[#D9D9D9] bg-white pl-9 pr-3.5 py-1.5 text-xs text-[#262626] focus:border-[#1890FF] focus:outline-none transition"
               />
             </div>
@@ -203,10 +203,10 @@ export const EventHistoryView: React.FC<EventHistoryViewProps> = ({
                 className="rounded-md border border-[#D9D9D9] bg-white px-3 py-1.5 text-xs text-[#262626] focus:border-[#1890FF] focus:outline-none transition"
               >
                 <option value="ALL">
-                  Tất cả SOS thật ({realSosEvents.length})
+                  Tất cả sự cố ({realSosEvents.length})
                 </option>
-                <option value="ACTIVE">Đang khẩn cấp (Chưa xử lý)</option>
-                <option value="RESOLVED">Đã xác nhận xử lý (Resolved)</option>
+                <option value="ACTIVE">Đang cần hỗ trợ</option>
+                <option value="RESOLVED">Đã hỗ trợ an toàn</option>
               </select>
             )}
           </div>
@@ -216,19 +216,16 @@ export const EventHistoryView: React.FC<EventHistoryViewProps> = ({
         <div className="px-6 py-2.5 bg-[#FAFAFA] border-b border-[#F0F0F0] flex flex-wrap items-center justify-between gap-2 text-xs text-[#595959]">
           {activeCategory === 'REAL_SOS' ? (
             <span>
-              Đang hiển thị lịch sử <strong>SOS thật (`test = false`)</strong> từ{' '}
-              <code>/helmets/{deviceId}/sos</code> và{' '}
-              <code>/helmets/{deviceId}/events</code>. Các bản ghi kiểm thử đã được tách biệt hoàn toàn.
+              Danh sách các cảnh báo khẩn cấp thực tế từ{' '}
+              <strong>{formatFriendlyDeviceName(deviceId)}</strong>. Bấm vào
+              từng mục để xem chi tiết kết quả liên lạc với người thân.
             </span>
           ) : (
             <span className="text-[#0050B3]">
-              <strong>Chế độ cách ly kiểm thử (Test Isolation):</strong> Các bản ghi trong{' '}
-              <code>/helmets/{deviceId}/testEvents</code> (hoặc <code>test = true</code>) chỉ dùng để đối chiếu kỹ thuật và <strong>không kích hoạt báo động khẩn cấp</strong>.
+              Danh sách các lần bấm kiểm tra thử nghiệm chức năng trên thiết bị
+              (Không phải sự cố tai nạn thực tế).
             </span>
           )}
-          <span className="font-mono text-[11px] text-[#8C8C8C]">
-            Thiết bị: {deviceId}
-          </span>
         </div>
 
         {error && (
@@ -242,20 +239,17 @@ export const EventHistoryView: React.FC<EventHistoryViewProps> = ({
           {loading ? (
             <div className="py-12 text-center text-xs text-[#595959] flex items-center justify-center gap-2">
               <Loader2 className="h-4 w-4 animate-spin text-[#1890FF]" />
-              <span>
-                Đang tải lịch sử sự kiện từ <code>/helmets/{deviceId}</code>...
-              </span>
+              <span>Đang tải nhật ký hoạt động của thiết bị...</span>
             </div>
           ) : filteredEvents.length === 0 ? (
             <div className="py-12 text-center text-xs text-[#8C8C8C] space-y-1">
               <div className="font-semibold text-[#595959]">
-                Không có bản ghi nào trong mục này cho thiết bị{' '}
-                <code>{deviceId}</code>.
+                Chưa có hoạt động nào trong danh mục này.
               </div>
               <div>
                 {activeCategory === 'REAL_SOS'
-                  ? 'Thiết bị chưa phát sinh sự cố SOS thật nào hoặc không khớp bộ lọc.'
-                  : 'Chưa có bản ghi kiểm thử trong node testEvents.'}
+                  ? 'Thiết bị chưa phát sinh cảnh báo khẩn cấp thực tế nào.'
+                  : 'Chưa có lịch sử kiểm tra thử nghiệm trên thiết bị.'}
               </div>
             </div>
           ) : (
@@ -275,7 +269,6 @@ export const EventHistoryView: React.FC<EventHistoryViewProps> = ({
                   }`}
                 >
                   <div className="flex items-start gap-4 min-w-0">
-                    {/* Icon Box */}
                     <div
                       className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-white shadow-2xs ${
                         evt.test
@@ -296,58 +289,43 @@ export const EventHistoryView: React.FC<EventHistoryViewProps> = ({
                       )}
                     </div>
 
-                    {/* Main Event Info */}
                     <div className="space-y-1.5 min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-mono text-xs font-bold text-[#262626] bg-[#F0F2F5] px-2 py-0.5 rounded border border-[#D9D9D9]">
-                          ID: #{evt.id}
+                        <span className="text-sm font-bold text-[#262626]">
+                          {evt.test
+                            ? 'Kiểm tra tính năng liên lạc khẩn cấp'
+                            : 'Tín hiệu cầu cứu khẩn cấp SOS'}
                         </span>
 
                         {evt.test ? (
-                          <span className="rounded bg-[#E6F7FF] border border-[#91D5FF] px-2 py-0.5 text-[11px] font-bold text-[#0050B3]">
-                            TEST EVENT ({evt.sourceNode})
+                          <span className="rounded bg-[#E6F7FF] border border-[#91D5FF] px-2 py-0.5 text-[11px] font-semibold text-[#0050B3]">
+                            Kiểm tra thử nghiệm
                           </span>
                         ) : isRealActive ? (
                           <span className="rounded bg-[#F5222D] px-2.5 py-0.5 text-[11px] font-bold text-white">
-                            ● SOS ĐANG KÍCH HOẠT (Chưa xử lý)
+                            ● Đang cần hỗ trợ khẩn cấp
                           </span>
                         ) : isResolved ? (
                           <span className="rounded bg-[#F6FFED] border border-[#B7EB8F] px-2.5 py-0.5 text-[11px] font-bold text-[#389E0D]">
-                            ✓ ĐÃ XỬ LÝ (RESOLVED)
+                            ✓ Đã hỗ trợ an toàn
                           </span>
                         ) : (
                           <span className="rounded bg-[#FFF7E6] border border-[#FFD591] px-2.5 py-0.5 text-[11px] font-bold text-[#D46B08]">
-                            Lịch sử SOS
+                            Đã ghi nhận
                           </span>
                         )}
 
                         {renderLocTypeBadge(evt.loc.type)}
-
-                        {evt.fw && (
-                          <span className="text-[11px] font-mono text-[#8C8C8C]">
-                            FW: {evt.fw}
-                          </span>
-                        )}
-                        {evt.mode && (
-                          <span className="text-[11px] font-mono text-[#8C8C8C]">
-                            • Mode: {evt.mode}
-                          </span>
-                        )}
-                        {evt.bootIndex !== undefined && (
-                          <span className="text-[11px] font-mono text-[#8C8C8C]">
-                            • Boot #{evt.bootIndex}
-                          </span>
-                        )}
                       </div>
 
-                      {/* SMS & Call Summary */}
+                      {/* Friendly SMS & Call Summary */}
                       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[#595959]">
                         <span className="inline-flex items-center gap-1">
                           <MessageSquare className="h-3.5 w-3.5 text-[#1890FF]" />
                           <span>
-                            SMS đã gửi lên mạng (Submitted):{' '}
+                            Đã gửi yêu cầu nhắn tin:{' '}
                             <strong className="text-[#262626]">
-                              {evt.sms.sent}/{evt.sms.targets}
+                              {evt.sms.sent}/{evt.sms.targets} người thân
                             </strong>
                           </span>
                         </span>
@@ -355,7 +333,7 @@ export const EventHistoryView: React.FC<EventHistoryViewProps> = ({
                         <span className="inline-flex items-center gap-1">
                           <PhoneCall className="h-3.5 w-3.5 text-[#52C41A]" />
                           <span>
-                            Người bắt máy (answeredBy):{' '}
+                            Kết quả gọi điện:{' '}
                             <strong
                               className={
                                 evt.answeredBy > 0
@@ -364,26 +342,29 @@ export const EventHistoryView: React.FC<EventHistoryViewProps> = ({
                               }
                             >
                               {evt.answeredBy > 0
-                                ? `Liên hệ ưu tiên #${evt.answeredBy}`
-                                : 'Chưa có người bắt máy (0)'}
+                                ? `Người thân ưu tiên #${evt.answeredBy} đã nghe máy`
+                                : 'Chưa có người thân bắt máy'}
                             </strong>
                           </span>
                         </span>
                       </div>
 
-                      {/* Location & GPS UTC */}
+                      {/* Location & Google Maps link */}
                       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[#595959]">
                         {evt.loc.type !== 'NONE' &&
                         evt.loc.lat !== undefined &&
                         evt.loc.lon !== undefined ? (
                           <>
-                            <span className="font-mono text-[#262626]">
-                              Tọa độ: {evt.loc.lat.toFixed(6)},{' '}
-                              {evt.loc.lon.toFixed(6)}
+                            <span>
+                              Tọa độ: {evt.loc.lat.toFixed(5)},{' '}
+                              {evt.loc.lon.toFixed(5)}
                             </span>
                             {evt.loc.utc && (
                               <span>
-                                • Mẫu GPS: {formatFirmwareGpsUtc(evt.loc.utc)}
+                                • Ghi nhận vị trí lúc:{' '}
+                                {cleanTimeText(
+                                  formatFirmwareGpsUtc(evt.loc.utc)
+                                )}
                               </span>
                             )}
                             {evt.loc.mapUrl && (
@@ -394,25 +375,25 @@ export const EventHistoryView: React.FC<EventHistoryViewProps> = ({
                                 onClick={(e) => e.stopPropagation()}
                                 className="inline-flex items-center gap-0.5 font-semibold text-[#1890FF] hover:underline"
                               >
-                                <span>Google Maps</span>
+                                <span>Xem trên Google Maps</span>
                                 <ArrowUpRight className="h-3 w-3" />
                               </a>
                             )}
                           </>
                         ) : (
                           <span className="text-[#CF1322]">
-                            Không có tọa độ GPS khi phát SOS (loc.type = NONE)
+                            Chưa xác định được tọa độ vị trí khi phát tín hiệu
                           </span>
                         )}
                       </div>
                     </div>
                   </div>
 
-                  {/* Right Box: Upload Time (pushedAt) & Resolve Action */}
+                  {/* Right Box: Time & Resolve Action */}
                   <div className="flex flex-col sm:flex-row lg:flex-col items-start sm:items-center lg:items-end justify-between gap-2 shrink-0">
                     <div className="rounded-lg bg-[#F8FAFC] border border-[#E2E8F0] px-3 py-1.5 text-left lg:text-right">
                       <div className="text-[10.5px] text-[#64748B]">
-                        Thời điểm tải lên (pushedAt):
+                        Thời điểm hệ thống nhận tin:
                       </div>
                       <div className="text-xs font-bold text-[#1E293B]">
                         {formatPushedAt(evt.pushedAt)}
@@ -434,13 +415,13 @@ export const EventHistoryView: React.FC<EventHistoryViewProps> = ({
                         ) : (
                           <Check className="h-3.5 w-3.5" />
                         )}
-                        <span>Xác nhận đã xử lý SOS</span>
+                        <span>Xác nhận đã hỗ trợ an toàn</span>
                       </button>
                     )}
 
                     {isResolved && evt.resolvedAt && (
                       <span className="text-[11px] font-medium text-[#389E0D]">
-                        Đã xử lý lúc: {formatPushedAt(evt.resolvedAt)}
+                        Đã xác nhận lúc: {formatPushedAt(evt.resolvedAt)}
                       </span>
                     )}
                   </div>
@@ -451,32 +432,30 @@ export const EventHistoryView: React.FC<EventHistoryViewProps> = ({
         </div>
       </div>
 
-      {/* Detailed SOS Event Modal (Requirement 3 & 4) */}
+      {/* Detailed SOS Event Modal (End-User Friendly) */}
       {selectedEvent && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
           <div className="w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-xl border border-[#E8E8E8] bg-white p-6 shadow-xl space-y-4">
             <div className="flex items-start justify-between gap-3 border-b border-[#F0F0F0] pb-3">
               <div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-mono text-xs font-bold bg-[#F0F2F5] px-2 py-0.5 rounded border border-[#D9D9D9]">
-                    Event ID: #{selectedEvent.id}
-                  </span>
                   {selectedEvent.test ? (
-                    <span className="rounded bg-[#E6F7FF] border border-[#91D5FF] px-2 py-0.5 text-xs font-bold text-[#0050B3]">
-                      Bản ghi Kiểm thử (test = true)
+                    <span className="rounded bg-[#E6F7FF] border border-[#91D5FF] px-2.5 py-0.5 text-xs font-bold text-[#0050B3]">
+                      Kiểm tra thử nghiệm thiết bị
                     </span>
                   ) : selectedEvent.resolved ? (
-                    <span className="rounded bg-[#F6FFED] border border-[#B7EB8F] px-2 py-0.5 text-xs font-bold text-[#389E0D]">
-                      Đã xử lý (resolved = true)
+                    <span className="rounded bg-[#F6FFED] border border-[#B7EB8F] px-2.5 py-0.5 text-xs font-bold text-[#389E0D]">
+                      ✓ Đã hỗ trợ an toàn
                     </span>
                   ) : (
-                    <span className="rounded bg-[#FFF1F0] border border-[#FFA39E] px-2 py-0.5 text-xs font-bold text-[#CF1322]">
-                      SOS Thật ({selectedEvent.active ? 'active = true' : 'active = false'})
+                    <span className="rounded bg-[#FFF1F0] border border-[#FFA39E] px-2.5 py-0.5 text-xs font-bold text-[#CF1322]">
+                      Cảnh báo khẩn cấp SOS
                     </span>
                   )}
                 </div>
                 <h3 className="text-base font-bold text-[#262626] mt-1.5">
-                  Chi tiết bản ghi SOS — Thiết bị {selectedEvent.deviceId}
+                  Chi tiết liên lạc khẩn cấp —{' '}
+                  {formatFriendlyDeviceName(selectedEvent.deviceId)}
                 </h3>
               </div>
 
@@ -489,50 +468,43 @@ export const EventHistoryView: React.FC<EventHistoryViewProps> = ({
               </button>
             </div>
 
-            {/* 1. Upload Time vs GPS Sample Time Disclaimer (Requirement 3) */}
+            {/* Friendly Explanation Box */}
             <div className="rounded-lg border border-[#FFE58F] bg-[#FFFBE6] p-3.5 text-xs text-[#874D00] space-y-1">
               <div className="font-bold flex items-center gap-1.5">
                 <AlertTriangle className="h-4 w-4 text-[#FAAD14] shrink-0" />
-                <span>Lưu ý về Thời điểm sự kiện &amp; Trạng thái tin nhắn SMS:</span>
+                <span>Thông tin cần lưu ý:</span>
               </div>
               <ul className="list-disc pl-5 space-y-0.5 text-[11.5px]">
                 <li>
-                  <strong>Thời điểm tải lên (pushedAt):</strong> Là lúc ESP32 kết nối Wi-Fi và đẩy báo cáo lên Firebase (sau khi đã thực hiện xong gửi SMS và gọi điện), <strong>không phải thời điểm va chạm chính xác</strong>.
+                  <strong>Thời điểm hệ thống nhận tin:</strong> Thiết bị luôn ưu
+                  tiên gửi tin nhắn SMS và gọi điện cho người thân trước, sau đó
+                  mới gửi báo cáo lên hệ thống.
                 </li>
                 <li>
-                  <strong>SMS Sent / Targets:</strong> Phản ánh số tin nhắn modem SIM A7680C đã đệ trình lên nhà mạng (SMS submission), <strong>không khẳng định điện thoại người thân đã nhận được tin nhắn</strong>.
+                  <strong>Trạng thái tin nhắn SMS:</strong> Cho biết thiết bị đã
+                  gửi tin nhắn lên nhà mạng di động, thời gian điện thoại người
+                  thân nhận được phụ thuộc vào sóng nhà mạng.
                 </li>
               </ul>
             </div>
 
-            {/* 2. Metadata & Timestamps */}
+            {/* Timestamps */}
             <div className="rounded-lg bg-[#FAFAFA] p-4 border border-[#E8E8E8] space-y-2 text-xs">
               <div className="flex justify-between gap-2">
                 <span className="text-[#8C8C8C]">
-                  Thời điểm tải lên Firebase (pushedAt):
+                  Thời điểm hệ thống nhận báo cáo:
                 </span>
-                <span className="font-mono font-semibold text-[#262626] text-right">
+                <span className="font-semibold text-[#262626] text-right">
                   {formatPushedAt(selectedEvent.pushedAt)}
                 </span>
               </div>
 
-              <div className="flex justify-between gap-2">
-                <span className="text-[#8C8C8C]">
-                  Firmware / Chế độ / Boot Index:
-                </span>
-                <span className="font-mono font-semibold text-[#262626]">
-                  {selectedEvent.fw || '--'} • Mode:{' '}
-                  {selectedEvent.mode || '--'} • Boot #
-                  {selectedEvent.bootIndex ?? '--'}
-                </span>
-              </div>
-
               {selectedEvent.resolved && (
-                <div className="flex justify-between gap-2 pt-1 border-t border-[#E8E8E8]">
+                <div className="flex justify-between gap-2 pt-1.5 border-t border-[#E8E8E8]">
                   <span className="text-[#389E0D] font-semibold">
-                    Thời điểm xác nhận xử lý (resolvedAt):
+                    Đã xác nhận hỗ trợ an toàn lúc:
                   </span>
-                  <span className="font-mono font-semibold text-[#389E0D] text-right">
+                  <span className="font-semibold text-[#389E0D] text-right">
                     {formatPushedAt(selectedEvent.resolvedAt)}{' '}
                     {selectedEvent.resolvedBy
                       ? `(${selectedEvent.resolvedBy})`
@@ -542,11 +514,11 @@ export const EventHistoryView: React.FC<EventHistoryViewProps> = ({
               )}
             </div>
 
-            {/* 3. GPS Location Block (CURRENT / OLD / NONE) */}
+            {/* Location Block */}
             <div className="rounded-lg bg-[#FAFAFA] p-4 border border-[#E8E8E8] space-y-2 text-xs">
               <div className="flex items-center justify-between">
                 <span className="font-bold text-[#262626]">
-                  Thông tin Vị trí GPS (loc)
+                  Vị trí khi phát tín hiệu
                 </span>
                 {renderLocTypeBadge(selectedEvent.loc.type)}
               </div>
@@ -556,20 +528,24 @@ export const EventHistoryView: React.FC<EventHistoryViewProps> = ({
               selectedEvent.loc.lon !== undefined ? (
                 <>
                   <div className="flex justify-between">
-                    <span className="text-[#8C8C8C]">Tọa độ (lat, lon):</span>
-                    <span className="font-mono font-semibold text-[#262626]">
-                      {selectedEvent.loc.lat.toFixed(6)},{' '}
-                      {selectedEvent.loc.lon.toFixed(6)}
+                    <span className="text-[#8C8C8C]">Tọa độ bản đồ:</span>
+                    <span className="font-semibold text-[#262626]">
+                      {selectedEvent.loc.lat.toFixed(5)},{' '}
+                      {selectedEvent.loc.lon.toFixed(5)}
                     </span>
                   </div>
-                  <div className="flex justify-between gap-2">
-                    <span className="text-[#8C8C8C]">
-                      Thời điểm mẫu GPS (loc.utc):
-                    </span>
-                    <span className="font-mono font-semibold text-[#262626] text-right">
-                      {formatFirmwareGpsUtc(selectedEvent.loc.utc)}
-                    </span>
-                  </div>
+                  {selectedEvent.loc.utc && (
+                    <div className="flex justify-between gap-2">
+                      <span className="text-[#8C8C8C]">
+                        Thời điểm ghi nhận vị trí:
+                      </span>
+                      <span className="font-semibold text-[#262626] text-right">
+                        {cleanTimeText(
+                          formatFirmwareGpsUtc(selectedEvent.loc.utc)
+                        )}
+                      </span>
+                    </div>
+                  )}
                   {selectedEvent.loc.mapUrl && (
                     <div className="pt-1">
                       <a
@@ -578,7 +554,7 @@ export const EventHistoryView: React.FC<EventHistoryViewProps> = ({
                         rel="noreferrer"
                         className="inline-flex items-center gap-1 font-semibold text-[#1890FF] hover:underline"
                       >
-                        <span>Mở vị trí sự cố trên Google Maps</span>
+                        <span>Mở vị trí trên Google Maps</span>
                         <ArrowUpRight className="h-3.5 w-3.5" />
                       </a>
                     </div>
@@ -586,68 +562,60 @@ export const EventHistoryView: React.FC<EventHistoryViewProps> = ({
                 </>
               ) : (
                 <div className="text-[#CF1322]">
-                  Thiết bị không có tọa độ GPS tại thời điểm phát SOS (loc.type =
-                  NONE).
+                  Thiết bị chưa thu thập được tọa độ định vị tại thời điểm phát
+                  tín hiệu.
                 </div>
               )}
             </div>
 
-            {/* 4. SMS & Voice Calls Breakdown */}
+            {/* SMS & Voice Calls Breakdown */}
             <div className="rounded-lg bg-[#FAFAFA] p-4 border border-[#E8E8E8] space-y-3 text-xs">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="font-bold text-[#262626]">
-                  Kết quả Gửi SMS &amp; Gọi Khẩn cấp (SIM A7680C)
+                  Kết quả liên hệ người thân
                 </span>
                 <span
-                  className={`rounded px-2 py-0.5 text-[11px] font-bold ${
+                  className={`rounded px-2.5 py-0.5 text-[11px] font-bold ${
                     selectedEvent.answeredBy > 0
                       ? 'bg-[#F6FFED] text-[#389E0D] border border-[#B7EB8F]'
                       : 'bg-[#FFF1F0] text-[#CF1322] border border-[#FFA39E]'
                   }`}
                 >
-                  answeredBy:{' '}
                   {selectedEvent.answeredBy > 0
-                    ? `Liên hệ ưu tiên #${selectedEvent.answeredBy}`
-                    : '0 (Chưa ai nghe máy)'}
+                    ? `Người thân ưu tiên #${selectedEvent.answeredBy} đã nghe máy`
+                    : 'Chưa có người thân bắt máy'}
                 </span>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <div className="rounded bg-white border border-[#E8E8E8] p-2.5">
                   <span className="text-[#8C8C8C] block text-[11px]">
-                    SMS Submitted / Targets
+                    Tin nhắn khẩn cấp đã gửi đi
                   </span>
-                  <strong className="font-mono text-sm text-[#262626]">
-                    {selectedEvent.sms.sent} / {selectedEvent.sms.targets}
+                  <strong className="text-sm text-[#262626]">
+                    {selectedEvent.sms.sent} / {selectedEvent.sms.targets} người
+                    thân
                   </strong>
                 </div>
                 <div className="rounded bg-white border border-[#E8E8E8] p-2.5">
                   <span className="text-[#8C8C8C] block text-[11px]">
-                    Loại GPS trong SMS đầu
+                    Tin nhắn cập nhật vị trí mới
                   </span>
-                  <strong className="font-mono text-sm text-[#262626]">
-                    {selectedEvent.sms.initialLocType ||
-                      selectedEvent.loc.type}
-                  </strong>
-                </div>
-                <div className="rounded bg-white border border-[#E8E8E8] p-2.5">
-                  <span className="text-[#8C8C8C] block text-[11px]">
-                    SMS cập nhật GPS mới
-                  </span>
-                  <strong className="font-mono text-sm text-[#262626]">
-                    {selectedEvent.sms.gpsUpdatesSubmitted ?? 0} tin
+                  <strong className="text-sm text-[#262626]">
+                    {selectedEvent.sms.gpsUpdatesSubmitted
+                      ? `Đã gửi bổ sung ${selectedEvent.sms.gpsUpdatesSubmitted} tin`
+                      : 'Không cần gửi bổ sung'}
                   </strong>
                 </div>
               </div>
 
-              {/* Call Attempts List */}
               <div className="space-y-1.5 pt-1">
                 <div className="text-[11px] font-semibold text-[#595959]">
-                  Chi tiết từng liên hệ theo thứ tự ưu tiên (calls):
+                  Thứ tự gọi điện cho từng người thân:
                 </div>
                 {selectedEvent.calls.length === 0 ? (
                   <div className="rounded bg-white border border-[#E8E8E8] p-2.5 text-[#8C8C8C]">
-                    Không có danh sách cuộc gọi chi tiết trong bản ghi này.
+                    Không có thông tin cuộc gọi trong bản ghi này.
                   </div>
                 ) : (
                   selectedEvent.calls.map((c: FirebaseSosCallAttempt) => (
@@ -657,23 +625,15 @@ export const EventHistoryView: React.FC<EventHistoryViewProps> = ({
                     >
                       <div className="flex items-center gap-2.5">
                         <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#001529] text-white font-bold text-[11px]">
-                          #{c.priority}
+                          {c.priority}
                         </span>
                         <div>
-                          <div className="font-mono font-bold text-[#262626]">
-                            {formatPhoneForDisplay(c.phone)}{' '}
-                            <span className="text-[11px] font-normal text-[#8C8C8C]">
-                              ({c.phone})
-                            </span>
+                          <div className="font-bold text-[#262626]">
+                            {formatPhoneForDisplay(c.phone)}
                           </div>
-                          {(c.smsEnabled !== undefined ||
-                            c.callEnabled !== undefined) && (
-                            <div className="text-[10.5px] text-[#8C8C8C]">
-                              Kênh cấu hình: SMS{' '}
-                              {c.smsEnabled !== false ? 'Bật' : 'Tắt'} • Gọi{' '}
-                              {c.callEnabled !== false ? 'Bật' : 'Tắt'}
-                            </div>
-                          )}
+                          <div className="text-[10.5px] text-[#8C8C8C]">
+                            Ưu tiên #{c.priority}
+                          </div>
                         </div>
                       </div>
 
@@ -710,7 +670,7 @@ export const EventHistoryView: React.FC<EventHistoryViewProps> = ({
                   ) : (
                     <Check className="h-3.5 w-3.5" />
                   )}
-                  <span>Xác nhận đã xử lý SOS (Transaction)</span>
+                  <span>Xác nhận đã hỗ trợ an toàn</span>
                 </button>
               ) : (
                 <div />

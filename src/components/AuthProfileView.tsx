@@ -133,7 +133,7 @@ export const AuthProfileView: React.FC<AuthProfileViewProps> = ({
         {savedBanner && (
           <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-xs font-semibold text-emerald-700 flex items-center gap-2">
             <Check className="h-4 w-4 shrink-0" />
-            <span>Đã lưu và đồng bộ thông tin hồ sơ lên Cloud thành công.</span>
+            <span>Đã lưu thông tin hồ sơ cá nhân thành công.</span>
           </div>
         )}
 
@@ -211,7 +211,7 @@ export const AuthProfileView: React.FC<AuthProfileViewProps> = ({
               className="inline-flex items-center gap-2 rounded-lg bg-[#1890FF] px-5 py-2.5 text-xs font-medium text-white hover:bg-[#40A9FF] disabled:opacity-50 transition shadow-2xs"
             >
               {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-              <span>{saving ? 'Đang lưu lên Cloud...' : 'Lưu hồ sơ'}</span>
+              <span>{saving ? 'Đang lưu thông tin...' : 'Lưu hồ sơ'}</span>
             </button>
           </div>
         </form>

@@ -8,7 +8,6 @@ import {
   Loader2,
   Plus,
   RefreshCw,
-  ShieldCheck,
 } from 'lucide-react';
 import { formatToVietnamTimezone } from '../hooks/useHelmetTelemetry';
 import {
@@ -21,6 +20,7 @@ import {
   FirebaseHelmetTelemetry,
   UserRole,
 } from '../types/helmet';
+import { formatFriendlyDeviceName } from './DashboardView';
 
 interface EmergencyContactsViewProps {
   deviceId: string;
@@ -45,10 +45,13 @@ interface EmergencyContactsViewProps {
   onForceResync: () => Promise<void>;
 }
 
+function cleanTimeText(raw: string): string {
+  return raw.replace(/\s*\(UTC\+7\)/g, '').trim();
+}
+
 export const EmergencyContactsView: React.FC<EmergencyContactsViewProps> = ({
   deviceId,
   contacts,
-  telemetry,
   syncComparison,
   loading,
   saving,
@@ -75,37 +78,6 @@ export const EmergencyContactsView: React.FC<EmergencyContactsViewProps> = ({
 
   const canModify = currentUserRole === 'OWNER' || currentUserRole === 'ADMIN';
   const sortedContacts = [...contacts].sort((a, b) => a.priority - b.priority);
-
-  // Extract device-reported slots from /helmets/{deviceId}/status/contacts & contactChannels
-  const deviceReportedSlots: {
-    slot: string;
-    phone: string;
-    priority: number;
-    smsEnabled: boolean;
-    callEnabled: boolean;
-  }[] = [];
-
-  if (telemetry?.contacts && typeof telemetry.contacts === 'object') {
-    for (let i = 1; i <= 5; i++) {
-      const slotKey = `p${i}`;
-      const rawPhone = telemetry.contacts[slotKey];
-      if (typeof rawPhone === 'string' && rawPhone.trim() !== '') {
-        const ch = telemetry.contactChannels?.[slotKey];
-        deviceReportedSlots.push({
-          slot: slotKey,
-          phone: rawPhone.trim(),
-          priority:
-            typeof ch?.priority === 'number' && Number.isFinite(ch.priority)
-              ? ch.priority
-              : i,
-          smsEnabled:
-            typeof ch?.smsEnabled === 'boolean' ? ch.smsEnabled : true,
-          callEnabled:
-            typeof ch?.callEnabled === 'boolean' ? ch.callEnabled : true,
-        });
-      }
-    }
-  }
 
   const openAddForm = () => {
     setEditingId(null);
@@ -174,7 +146,7 @@ export const EmergencyContactsView: React.FC<EmergencyContactsViewProps> = ({
       const msg =
         err instanceof Error
           ? err.message
-          : 'Không thể lưu dữ liệu lên Firebase.';
+          : 'Không thể lưu thông tin người thân.';
       setFormError(msg);
     }
   };
@@ -190,8 +162,8 @@ export const EmergencyContactsView: React.FC<EmergencyContactsViewProps> = ({
   };
 
   const formatTimestampMs = (ms: number | null) => {
-    if (!ms || !Number.isFinite(ms)) return '--';
-    return formatToVietnamTimezone(new Date(ms), true);
+    if (!ms || !Number.isFinite(ms)) return 'Chưa ghi nhận';
+    return cleanTimeText(formatToVietnamTimezone(new Date(ms), true));
   };
 
   return (
@@ -201,19 +173,19 @@ export const EmergencyContactsView: React.FC<EmergencyContactsViewProps> = ({
         <div>
           <div className="flex flex-wrap items-center gap-2.5">
             <h2 className="text-base font-bold text-zinc-900">
-              Danh sách người thân nhận thông báo ({deviceId})
+              Danh sách người thân nhận thông báo khẩn cấp
             </h2>
             {saving && (
               <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-0.5 text-[11px] font-medium text-blue-700">
                 <Loader2 className="h-3 w-3 animate-spin" />
-                Đang đồng bộ...
+                Đang lưu thay đổi...
               </span>
             )}
           </div>
           <p className="text-xs text-zinc-500 mt-0.5">
-            Nguồn dữ liệu chuẩn: <code>/helmets/{deviceId}/emergencyContacts</code> • Tự động cập nhật{' '}
-            <code>contactsUpdatedAt</code>, <code>contactsInitialized</code> và{' '}
-            <code>configVersion</code>.
+            Khi xảy ra sự cố mà người sử dụng không hủy cảnh báo,{' '}
+            <strong>{formatFriendlyDeviceName(deviceId)}</strong> sẽ nhắn tin và
+            gọi điện lần lượt từ trên xuống.
           </p>
         </div>
 
@@ -228,7 +200,7 @@ export const EmergencyContactsView: React.FC<EmergencyContactsViewProps> = ({
               <RefreshCw
                 className={`h-3.5 w-3.5 ${saving ? 'animate-spin' : ''}`}
               />
-              <span>Đồng bộ xuống cấu hình thiết bị</span>
+              <span>Đồng bộ xuống thiết bị</span>
             </button>
 
             <button
@@ -244,135 +216,57 @@ export const EmergencyContactsView: React.FC<EmergencyContactsViewProps> = ({
         )}
       </div>
 
-      {/* V2.4.2-dev Contact Synchronization Status Panel (Synced vs Pending Sync) */}
-      <div className="rounded-xl border border-[#E8E8E8] bg-white p-4 shadow-[0_1px_2px_rgba(0,0,0,0.03)] space-y-3">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[#F0F0F0]">
-          <div className="flex items-center gap-2.5">
-            <div
-              className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
-                syncComparison.isSynced
-                  ? 'bg-[#F6FFED] text-[#52C41A]'
-                  : 'bg-[#FFF7E6] text-[#FA8C16]'
-              }`}
-            >
+      {/* Friendly Contact Synchronization Status Card */}
+      <div className="rounded-xl border border-[#E8E8E8] bg-white p-4 shadow-[0_1px_2px_rgba(0,0,0,0.03)] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-start sm:items-center gap-3">
+          <div
+            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
+              syncComparison.isSynced
+                ? 'bg-[#F6FFED] text-[#52C41A]'
+                : 'bg-[#FFF7E6] text-[#FA8C16]'
+            }`}
+          >
+            {syncComparison.isSynced ? (
+              <CheckCircle2 className="h-5 w-5" />
+            ) : (
+              <Clock className="h-5 w-5" />
+            )}
+          </div>
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-bold text-[#262626]">
+                Trạng thái danh bạ trên thiết bị:
+              </span>
               {syncComparison.isSynced ? (
-                <CheckCircle2 className="h-4 w-4" />
+                <span className="inline-flex items-center gap-1 rounded-full bg-[#F6FFED] border border-[#B7EB8F] px-2.5 py-0.5 text-xs font-bold text-[#389E0D]">
+                  ✓ Đã đồng bộ đầy đủ
+                </span>
               ) : (
-                <Clock className="h-4 w-4" />
+                <span className="inline-flex items-center gap-1 rounded-full bg-[#FFF7E6] border border-[#FFD591] px-2.5 py-0.5 text-xs font-bold text-[#D46B08]">
+                  ● Đang chờ thiết bị cập nhật
+                </span>
               )}
             </div>
-            <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs font-bold text-[#262626]">
-                  Trạng thái đồng bộ với Firmware V2.4.2-dev:
-                </span>
-                {syncComparison.isSynced ? (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-[#F6FFED] border border-[#B7EB8F] px-2.5 py-0.5 text-xs font-bold text-[#389E0D]">
-                    ● Synced (Đã đồng bộ)
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-[#FFF7E6] border border-[#FFD591] px-2.5 py-0.5 text-xs font-bold text-[#D46B08]">
-                    ● Pending Sync (Chờ đồng bộ)
-                  </span>
-                )}
-              </div>
-              <p className="text-[11.5px] text-[#595959] mt-0.5">
-                {syncComparison.reason}
-              </p>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2 text-xs">
-            <span
-              className={`inline-flex items-center gap-1 rounded px-2 py-1 font-semibold border ${
-                syncComparison.contactConfigVerified
-                  ? 'bg-[#F6FFED] text-[#389E0D] border-[#B7EB8F]'
-                  : 'bg-[#FFF1F0] text-[#CF1322] border-[#FFA39E]'
-              }`}
-            >
-              <ShieldCheck className="h-3.5 w-3.5" />
-              contactConfigVerified:{' '}
-              {String(syncComparison.contactConfigVerified)}
-            </span>
-
-            <span className="rounded bg-[#FAFAFA] border border-[#D9D9D9] px-2 py-1 font-mono text-[11px] text-[#262626]">
-              Nguồn: {syncComparison.contactSource || '--'}
-            </span>
+            <p className="text-xs text-[#595959] mt-0.5">
+              {syncComparison.isSynced
+                ? `Thiết bị đã lưu ${syncComparison.activeContactCount} số điện thoại người thân vào bộ nhớ trong và sẵn sàng liên hệ khi khẩn cấp.`
+                : 'Thay đổi của bạn đã được lưu trên hệ thống. Thiết bị sẽ tự động nạp danh sách mới này ngay trong lần kết nối tiếp theo.'}
+            </p>
           </div>
         </div>
 
-        {/* Timestamp & Version Comparison Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 text-xs">
-          <div className="rounded-lg bg-[#FAFAFA] border border-[#E8E8E8] p-2.5">
-            <span className="text-[11px] text-[#8C8C8C] block">
-              Web contactsUpdatedAt
-            </span>
-            <strong className="font-mono text-[#262626] block mt-0.5 text-[11.5px]">
-              {formatTimestampMs(syncComparison.webContactsUpdatedAt)}
-            </strong>
-          </div>
-
-          <div className="rounded-lg bg-[#FAFAFA] border border-[#E8E8E8] p-2.5">
-            <span className="text-[11px] text-[#8C8C8C] block">
-              ESP32 status/contactsUpdatedAt
-            </span>
-            <strong className="font-mono text-[#262626] block mt-0.5 text-[11.5px]">
-              {formatTimestampMs(syncComparison.deviceContactsUpdatedAt)}
-            </strong>
-          </div>
-
-          <div className="rounded-lg bg-[#FAFAFA] border border-[#E8E8E8] p-2.5">
-            <span className="text-[11px] text-[#8C8C8C] block">
-              Phiên bản cấu hình (configVersion)
-            </span>
-            <strong className="font-mono text-[#262626] block mt-0.5">
-              Web: v{syncComparison.webConfigVersion ?? '--'} • ESP32: v
-              {syncComparison.deviceConfigVersion ?? '--'}
-            </strong>
-          </div>
-
-          <div className="rounded-lg bg-[#FAFAFA] border border-[#E8E8E8] p-2.5">
-            <span className="text-[11px] text-[#8C8C8C] block">
-              Số liên hệ đang nạp trên ESP32
-            </span>
-            <strong className="font-mono text-[#1890FF] block mt-0.5">
-              activeContactCount: {syncComparison.activeContactCount}
-            </strong>
-          </div>
+        <div className="text-xs text-[#8C8C8C] shrink-0 sm:text-right">
+          <div>Cập nhật gần nhất:</div>
+          <strong className="text-[#262626]">
+            {formatTimestampMs(
+              syncComparison.webContactsUpdatedAt ??
+                syncComparison.deviceContactsUpdatedAt
+            )}
+          </strong>
         </div>
-
-        {/* Device Reported contactChannels & contacts (p1..p5) */}
-        {deviceReportedSlots.length > 0 && (
-          <div className="pt-1">
-            <div className="text-[11px] font-semibold text-[#595959] mb-1.5">
-              Danh bạ &amp; Kênh liên lạc đang nạp thực tế trên ESP32 (
-              <code>status/contacts</code> &amp;{' '}
-              <code>status/contactChannels</code>):
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {deviceReportedSlots.map((slot) => (
-                <div
-                  key={slot.slot}
-                  className="inline-flex items-center gap-2 rounded-lg border border-[#91D5FF] bg-[#E6F7FF]/50 px-2.5 py-1 text-xs"
-                >
-                  <span className="rounded bg-[#1890FF] px-1.5 py-0.2 text-[10.5px] font-bold text-white uppercase">
-                    {slot.slot} (#{slot.priority})
-                  </span>
-                  <span className="font-mono font-bold text-[#262626]">
-                    {formatPhoneForDisplay(slot.phone)}
-                  </span>
-                  <span className="text-[11px] text-[#0050B3]">
-                    [SMS: {slot.smsEnabled ? 'Bật' : 'Tắt'} • Gọi:{' '}
-                    {slot.callEnabled ? 'Bật' : 'Tắt'}]
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
 
-      {/* Firebase Error Banner */}
+      {/* Error Banner */}
       {error && (
         <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-xs text-amber-900 flex items-center gap-2.5">
           <AlertCircle className="h-4 w-4 text-amber-600 shrink-0" />
@@ -387,7 +281,7 @@ export const EmergencyContactsView: React.FC<EmergencyContactsViewProps> = ({
           className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-xs space-y-4"
         >
           <h3 className="text-sm font-bold text-zinc-900">
-            {editingId ? 'Chỉnh sửa thông tin liên hệ' : 'Thêm người thân mới'}
+            {editingId ? 'Chỉnh sửa thông tin người thân' : 'Thêm người thân mới'}
           </h3>
 
           {formError && (
@@ -425,7 +319,7 @@ export const EmergencyContactsView: React.FC<EmergencyContactsViewProps> = ({
             </div>
             <div>
               <label className="block text-xs font-medium text-zinc-600 mb-1.5">
-                Số điện thoại (10 số VN)
+                Số điện thoại di động
               </label>
               <input
                 type="text"
@@ -446,7 +340,7 @@ export const EmergencyContactsView: React.FC<EmergencyContactsViewProps> = ({
                 onChange={(e) => setSmsEnabled(e.target.checked)}
                 className="h-4 w-4 accent-zinc-900 rounded"
               />
-              <span>Gửi tin nhắn SMS kèm vị trí bản đồ (smsEnabled)</span>
+              <span>Nhận tin nhắn SMS kèm vị trí bản đồ</span>
             </label>
             <label className="inline-flex items-center gap-2 text-xs text-zinc-700 cursor-pointer">
               <input
@@ -455,7 +349,7 @@ export const EmergencyContactsView: React.FC<EmergencyContactsViewProps> = ({
                 onChange={(e) => setCallEnabled(e.target.checked)}
                 className="h-4 w-4 accent-zinc-900 rounded"
               />
-              <span>Gọi điện thoại báo động khẩn cấp (callEnabled)</span>
+              <span>Nhận cuộc gọi điện thoại báo động khẩn cấp</span>
             </label>
           </div>
 
@@ -479,20 +373,17 @@ export const EmergencyContactsView: React.FC<EmergencyContactsViewProps> = ({
         </form>
       )}
 
-      {/* Loading State */}
+      {/* Loading / Empty / Contacts List */}
       {loading ? (
         <div className="rounded-2xl border border-zinc-200/80 bg-white p-8 text-center text-xs text-zinc-500 flex items-center justify-center gap-2.5">
           <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
-          <span>
-            Đang tải danh sách người thân từ{' '}
-            <code>/helmets/{deviceId}/emergencyContacts</code>...
-          </span>
+          <span>Đang tải danh sách người thân...</span>
         </div>
       ) : sortedContacts.length === 0 ? (
         <div className="rounded-2xl border border-zinc-200/80 bg-white p-8 text-center space-y-3">
           <p className="text-xs text-zinc-500">
-            Chưa có người thân nào trong node{' '}
-            <code>/helmets/{deviceId}/emergencyContacts</code>.
+            Chưa có người thân nào trong danh sách nhận tin khẩn cấp của thiết bị
+            này.
           </p>
           {canModify && (
             <div className="flex flex-wrap items-center justify-center gap-2.5">
@@ -509,13 +400,12 @@ export const EmergencyContactsView: React.FC<EmergencyContactsViewProps> = ({
                 className="inline-flex items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-4 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-50 transition"
               >
                 <RefreshCw className="h-3.5 w-3.5" />
-                Đồng bộ từ trạng thái thiết bị / Khởi tạo danh bạ chuẩn
+                Khôi phục danh bạ từ thiết bị
               </button>
             </div>
           )}
         </div>
       ) : (
-        /* Contacts List Card */
         <div className="rounded-2xl border border-zinc-200/80 bg-white divide-y divide-zinc-100 shadow-[0_2px_10px_rgba(0,0,0,0.02)]">
           {sortedContacts.map((contact, idx) => {
             const isSmsOn = contact.smsEnabled ?? contact.receiveSms ?? true;
@@ -546,11 +436,11 @@ export const EmergencyContactsView: React.FC<EmergencyContactsViewProps> = ({
                       <span className="text-xs text-zinc-500">
                         {contact.relationship}
                       </span>
-                      <span className="rounded bg-zinc-100 px-1.5 py-0.2 font-mono text-[10.5px] text-zinc-600">
-                        p{contact.priority}
+                      <span className="rounded bg-zinc-100 px-2 py-0.2 text-[10.5px] font-medium text-zinc-600">
+                        Ưu tiên #{contact.priority}
                       </span>
                     </div>
-                    <div className="text-xs font-medium text-zinc-700 mt-0.5 font-mono">
+                    <div className="text-xs font-medium text-zinc-700 mt-0.5">
                       {formatPhoneForDisplay(contact.phone)}
                     </div>
                   </div>
@@ -572,7 +462,7 @@ export const EmergencyContactsView: React.FC<EmergencyContactsViewProps> = ({
                         : 'bg-zinc-50 text-zinc-400 border-zinc-200'
                     }`}
                   >
-                    SMS: {isSmsOn ? 'Bật' : 'Tắt'}
+                    Tin nhắn: {isSmsOn ? 'Bật' : 'Tắt'}
                   </button>
 
                   <button
@@ -599,7 +489,7 @@ export const EmergencyContactsView: React.FC<EmergencyContactsViewProps> = ({
                       <button
                         disabled={idx === 0 || saving}
                         onClick={() => onReorderPriority(contact.id, 'UP')}
-                        title="Chuyển lên trên"
+                        title="Ưu tiên cao hơn"
                         className="rounded-lg p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-800 disabled:opacity-30"
                       >
                         <ArrowUp className="h-3.5 w-3.5" />
@@ -607,7 +497,7 @@ export const EmergencyContactsView: React.FC<EmergencyContactsViewProps> = ({
                       <button
                         disabled={idx === sortedContacts.length - 1 || saving}
                         onClick={() => onReorderPriority(contact.id, 'DOWN')}
-                        title="Chuyển xuống dưới"
+                        title="Ưu tiên thấp hơn"
                         className="rounded-lg p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-800 disabled:opacity-30"
                       >
                         <ArrowDown className="h-3.5 w-3.5" />
@@ -646,7 +536,7 @@ export const EmergencyContactsView: React.FC<EmergencyContactsViewProps> = ({
               <p className="text-xs text-zinc-600 mt-1.5 leading-relaxed">
                 Bạn có chắc chắn muốn xóa <strong>{deleteTarget.name}</strong> (
                 {formatPhoneForDisplay(deleteTarget.phone)}) khỏi danh sách nhận
-                tin khẩn cấp của thiết bị <code>{deviceId}</code>?
+                thông báo khẩn cấp?
               </p>
             </div>
 
