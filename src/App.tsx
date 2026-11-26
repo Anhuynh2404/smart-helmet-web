@@ -156,6 +156,19 @@ export function App() {
             (!currentDevSummary || !currentDevSummary.hasActiveSos)
           ) {
             handleSelectDevice(firstSosDevice.deviceId);
+          } else if (
+            (!currentDevSummary ||
+              (currentDevSummary.fw === '--' &&
+                currentDevSummary.lastSeen === undefined)) &&
+            devices.some((d) => d.fw !== '--' || d.lastSeen !== undefined)
+          ) {
+            // Tự động chuyển sang thiết bị đang có dữ liệu hoạt động thực tế (VD: helmet01_phase3e)
+            const activeDev = devices.find(
+              (d) => d.fw !== '--' || d.lastSeen !== undefined
+            );
+            if (activeDev) {
+              handleSelectDevice(activeDev.deviceId);
+            }
           }
         }
       }
@@ -186,6 +199,7 @@ export function App() {
 
   const {
     activeEmergencySos,
+    allSosEvents,
     realSosEvents,
     testSosEvents,
     isAlarmPlaying,
@@ -804,6 +818,7 @@ export function App() {
               contacts={firebaseContacts}
               contactSyncComparison={contactSyncComparison}
               activeEmergencySos={activeEmergencySos}
+              allSosEvents={allSosEvents}
               realSosEvents={realSosEvents}
               resolvingSosId={resolvingSosId}
               onResolveSos={handleResolveSosIncident}
@@ -867,8 +882,10 @@ export function App() {
           {activeTab === 'events' && (
             <EventHistoryView
               deviceId={targetDeviceId}
+              allSosEvents={allSosEvents}
               realSosEvents={realSosEvents}
               testSosEvents={testSosEvents}
+              contacts={firebaseContacts}
               loading={sosEventsLoading}
               resolvingId={resolvingSosId}
               isServerDisconnected={isServerDisconnected}

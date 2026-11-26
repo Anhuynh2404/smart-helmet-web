@@ -62,6 +62,7 @@ interface DashboardViewProps {
   contacts: EmergencyContact[];
   contactSyncComparison: ContactSyncComparison;
   activeEmergencySos: FirebaseSosEventRecord | null;
+  allSosEvents?: FirebaseSosEventRecord[];
   realSosEvents: FirebaseSosEventRecord[];
   resolvingSosId: string | null;
   onResolveSos: (eventId: string) => Promise<void>;
@@ -153,6 +154,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   contacts,
   contactSyncComparison,
   activeEmergencySos,
+  allSosEvents,
   realSosEvents,
   resolvingSosId,
   onResolveSos,
@@ -1504,12 +1506,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           <div className="space-y-2.5">
-            {realSosEvents.length === 0 ? (
-              <div className="rounded-lg border border-[#E8E8E8] bg-[#FAFAFA] p-6 text-center text-xs text-[#8C8C8C]">
-                Chưa phát sinh sự cố khẩn cấp nào trên thiết bị này.
-              </div>
-            ) : (
-              realSosEvents.slice(0, 4).map((evt) => {
+            {(() => {
+              const recentActivityList =
+                allSosEvents && allSosEvents.length > 0
+                  ? allSosEvents
+                  : realSosEvents;
+              if (recentActivityList.length === 0) {
+                return (
+                  <div className="rounded-lg border border-[#E8E8E8] bg-[#FAFAFA] p-6 text-center text-xs text-[#8C8C8C]">
+                    Chưa phát sinh sự cố hoặc hoạt động SOS nào trên thiết bị
+                    này.
+                  </div>
+                );
+              }
+              return recentActivityList.slice(0, 4).map((evt) => {
                 const isActive = evt.active === true && evt.resolved !== true;
                 const isResolved = evt.resolved === true;
 
@@ -1598,8 +1608,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     </div>
                   </div>
                 );
-              })
-            )}
+              });
+            })()}
           </div>
         </div>
 

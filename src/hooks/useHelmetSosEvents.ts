@@ -22,6 +22,7 @@ import {
 export interface UseHelmetSosEventsResult {
   latestSos: FirebaseSosEventRecord | null;
   activeEmergencySos: FirebaseSosEventRecord | null; // Non-null whenever SOS is triggered on Firebase
+  allSosEvents: FirebaseSosEventRecord[]; // Toàn bộ sự kiện từ /events, /sos và /testEvents của thiết bị
   realSosEvents: FirebaseSosEventRecord[];
   testSosEvents: FirebaseSosEventRecord[];
   isAlarmPlaying: boolean;
@@ -256,12 +257,14 @@ export function useHelmetSosEvents(
     }
   }, [activeEmergencySos, isAlarmPlaying]);
 
-  // Merge and isolate Real SOS Events vs Test Events
-  const { realSosEvents, testSosEvents } = useMemo(() => {
+  // Merge all events from /events, /sos, and /testEvents so the Activity Log always shows all Firebase events
+  const { allSosEvents, realSosEvents, testSosEvents } = useMemo(() => {
+    const allMap = new Map<string, FirebaseSosEventRecord>();
     const realMap = new Map<string, FirebaseSosEventRecord>();
     const testMap = new Map<string, FirebaseSosEventRecord>();
 
     rawEventsNode.forEach((evt) => {
+      allMap.set(evt.id, evt);
       if (evt.test) {
         testMap.set(evt.id, evt);
       } else {
@@ -270,39 +273,51 @@ export function useHelmetSosEvents(
     });
 
     rawTestEventsNode.forEach((evt) => {
-      testMap.set(evt.id, { ...evt, test: true, sourceNode: 'testEvents' });
+      const normalizedTestEvt: FirebaseSosEventRecord = {
+        ...evt,
+        test: true,
+        sourceNode: 'testEvents',
+      };
+      if (!allMap.has(evt.id)) {
+        allMap.set(evt.id, normalizedTestEvt);
+      }
+      testMap.set(evt.id, normalizedTestEvt);
     });
 
     if (latestSos) {
+      const existingAll = allMap.get(latestSos.id);
+      const mergedLatest: FirebaseSosEventRecord = {
+        ...(existingAll || latestSos),
+        active: latestSos.active,
+        resolved: latestSos.resolved,
+        resolvedAt: latestSos.resolvedAt ?? existingAll?.resolvedAt,
+        resolvedBy: latestSos.resolvedBy ?? existingAll?.resolvedBy,
+      };
+      allMap.set(latestSos.id, mergedLatest);
+
       if (latestSos.test) {
-        const existing = testMap.get(latestSos.id);
-        testMap.set(latestSos.id, {
-          ...(existing || latestSos),
-          active: latestSos.active,
-          resolved: latestSos.resolved,
-          resolvedAt: latestSos.resolvedAt ?? existing?.resolvedAt,
-          resolvedBy: latestSos.resolvedBy ?? existing?.resolvedBy,
-        });
+        testMap.set(latestSos.id, mergedLatest);
       } else {
-        const existing = realMap.get(latestSos.id);
-        realMap.set(latestSos.id, {
-          ...(existing || latestSos),
-          active: latestSos.active,
-          resolved: latestSos.resolved,
-          resolvedAt: latestSos.resolvedAt ?? existing?.resolvedAt,
-          resolvedBy: latestSos.resolvedBy ?? existing?.resolvedBy,
-        });
+        realMap.set(latestSos.id, mergedLatest);
       }
     }
 
-    const realList = Array.from(realMap.values()).sort(
-      (a, b) => (b.pushedAt || 0) - (a.pushedAt || 0)
-    );
-    const testList = Array.from(testMap.values()).sort(
-      (a, b) => (b.pushedAt || 0) - (a.pushedAt || 0)
-    );
+    const sortEvents = (list: FirebaseSosEventRecord[]) =>
+      list.sort((a, b) => {
+        const timeDiff = (b.pushedAt || 0) - (a.pushedAt || 0);
+        if (timeDiff !== 0) return timeDiff;
+        return (b.sequence || 0) - (a.sequence || 0);
+      });
 
-    return { realSosEvents: realList, testSosEvents: testList };
+    const allList = sortEvents(Array.from(allMap.values()));
+    const realList = sortEvents(Array.from(realMap.values()));
+    const testList = sortEvents(Array.from(testMap.values()));
+
+    return {
+      allSosEvents: allList,
+      realSosEvents: realList,
+      testSosEvents: testList,
+    };
   }, [rawEventsNode, rawTestEventsNode, latestSos]);
 
   const resolveSos = useCallback(
@@ -338,6 +353,7 @@ export function useHelmetSosEvents(
   return {
     latestSos,
     activeEmergencySos,
+    allSosEvents,
     realSosEvents,
     testSosEvents,
     isAlarmPlaying,

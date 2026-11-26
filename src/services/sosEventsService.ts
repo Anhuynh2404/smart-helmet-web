@@ -199,6 +199,14 @@ const LEGACY_LOCAL_RESOLVED_SOS_STORAGE_KEY = 'casbox_resolved_sos_events_v1';
           typeof raw.bootIndex === 'number' && Number.isFinite(raw.bootIndex)
             ? raw.bootIndex
             : undefined,
+        sequence:
+          typeof raw.sequence === 'number' && Number.isFinite(raw.sequence)
+            ? raw.sequence
+            : undefined,
+        trigger:
+          typeof raw.trigger === 'string' ? raw.trigger : undefined,
+        product:
+          typeof raw.product === 'string' ? raw.product : undefined,
         fw: raw.fw !== undefined ? String(raw.fw) : undefined,
         mode: typeof raw.mode === 'string' ? raw.mode : undefined,
         answeredBy:

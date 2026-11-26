@@ -36,7 +36,11 @@ export function normalizeDeviceId(deviceId: string): string {
 
 export const DEFAULT_HELMET_DEVICE_ID = normalizeDeviceId(rawEnvDeviceId);
 
-export const KNOWN_DEFAULT_DEVICES = ['helmet01', 'helmet01_phase34'];
+export const KNOWN_DEFAULT_DEVICES = [
+  'helmet01_phase3e',
+  'helmet01_phase34',
+  'helmet01',
+];
 
 const firebaseConfig = {
   apiKey:

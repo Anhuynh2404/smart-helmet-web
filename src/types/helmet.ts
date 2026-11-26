@@ -267,6 +267,9 @@ export interface FirebaseSosEventRecord {
   resolvedBy?: string;
   pushedAt?: number;
   bootIndex?: number;
+  sequence?: number;
+  trigger?: string;
+  product?: string;
   fw?: string;
   mode?: string;
   answeredBy: number; // 0 = chưa ai bắt máy, 1..5 = vị trí ưu tiên đã nghe máy

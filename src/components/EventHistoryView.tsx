@@ -5,6 +5,7 @@ import {
   ArrowUpRight,
   Check,
   CheckCircle2,
+  Clock,
   FlaskConical,
   Loader2,
   MapPin,
@@ -17,6 +18,7 @@ import { formatToVietnamTimezone } from '../hooks/useHelmetTelemetry';
 import { formatPhoneForDisplay } from '../services/emergencyContactsService';
 import { formatFirmwareGpsUtc } from '../services/sosEventsService';
 import {
+  EmergencyContact,
   FirebaseSosCallAttempt,
   FirebaseSosEventRecord,
 } from '../types/helmet';
@@ -24,8 +26,10 @@ import { formatFriendlyDeviceName } from './DashboardView';
 
 interface EventHistoryViewProps {
   deviceId: string;
+  allSosEvents?: FirebaseSosEventRecord[];
   realSosEvents: FirebaseSosEventRecord[];
   testSosEvents: FirebaseSosEventRecord[];
+  contacts?: EmergencyContact[];
   isServerDisconnected?: boolean;
   loading: boolean;
   resolvingId: string | null;
@@ -42,8 +46,10 @@ function cleanTimeText(raw: string): string {
 
 export const EventHistoryView: React.FC<EventHistoryViewProps> = ({
   deviceId,
+  allSosEvents,
   realSosEvents,
   testSosEvents,
+  contacts = [],
   isServerDisconnected = false,
   loading,
   resolvingId,
@@ -51,8 +57,8 @@ export const EventHistoryView: React.FC<EventHistoryViewProps> = ({
   onResolveSos,
 }) => {
   const [activeCategory, setActiveCategory] = useState<
-    'REAL_SOS' | 'TEST_EVENTS'
-  >('REAL_SOS');
+    'ALL_EVENTS' | 'REAL_SOS' | 'TEST_EVENTS'
+  >('ALL_EVENTS');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<
     'ALL' | 'ACTIVE' | 'RESOLVED'
@@ -60,8 +66,42 @@ export const EventHistoryView: React.FC<EventHistoryViewProps> = ({
   const [selectedEvent, setSelectedEvent] =
     useState<FirebaseSosEventRecord | null>(null);
 
+  const mergedAllEvents =
+    allSosEvents && allSosEvents.length > 0
+      ? allSosEvents
+      : [...realSosEvents, ...testSosEvents].sort(
+          (a, b) => (b.pushedAt || 0) - (a.pushedAt || 0)
+        );
+
   const sourceList =
-    activeCategory === 'REAL_SOS' ? realSosEvents : testSosEvents;
+    activeCategory === 'ALL_EVENTS'
+      ? mergedAllEvents
+      : activeCategory === 'REAL_SOS'
+      ? realSosEvents
+      : testSosEvents;
+
+  const normalizePhoneDigits = (rawPhone: string): string =>
+    formatPhoneForDisplay(rawPhone).replace(/\D/g, '');
+
+  const findContactForPhone = (rawPhone: string): EmergencyContact | null => {
+    const targetDigits = normalizePhoneDigits(rawPhone);
+    if (!targetDigits) return null;
+    return (
+      contacts.find((c) => normalizePhoneDigits(c.phone) === targetDigits) ||
+      null
+    );
+  };
+
+  const getFriendlyTriggerText = (trigger?: string, isTest?: boolean) => {
+    if (trigger === 'FALL_OR_TEST') {
+      return isTest
+        ? 'Kích hoạt kiểm tra tính năng bảo vệ & liên lạc SOS'
+        : 'Phát hiện va chạm / té ngã cần hỗ trợ';
+    }
+    return isTest
+      ? 'Kiểm tra tính năng liên lạc khẩn cấp'
+      : 'Phát hiện tín hiệu cầu cứu khẩn cấp SOS';
+  };
 
   const filteredEvents = sourceList.filter((evt) => {
     if (statusFilter === 'ACTIVE' && (evt.resolved || !evt.active)) {
@@ -74,13 +114,20 @@ export const EventHistoryView: React.FC<EventHistoryViewProps> = ({
     const q = searchQuery.trim().toLowerCase();
     if (!q) return true;
 
-    const matchPhone = evt.calls.some(
-      (c) =>
+    const matchPhoneOrContact = evt.calls.some((c) => {
+      const matchedContact = findContactForPhone(c.phone);
+      return (
         c.phone.toLowerCase().includes(q) ||
-        formatPhoneForDisplay(c.phone).toLowerCase().includes(q)
-    );
-    const matchId = evt.id.toLowerCase().includes(q);
-    return matchPhone || matchId;
+        formatPhoneForDisplay(c.phone).toLowerCase().includes(q) ||
+        (matchedContact &&
+          (matchedContact.name.toLowerCase().includes(q) ||
+            matchedContact.relationship.toLowerCase().includes(q)))
+      );
+    });
+    const matchResolver = (evt.resolvedBy || '').toLowerCase().includes(q);
+    const matchSeq =
+      evt.sequence !== undefined && String(evt.sequence).includes(q);
+    return matchPhoneOrContact || matchResolver || matchSeq;
   });
 
   const renderCallResultBadge = (result: string) => {
@@ -157,6 +204,19 @@ export const EventHistoryView: React.FC<EventHistoryViewProps> = ({
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
+              onClick={() => setActiveCategory('ALL_EVENTS')}
+              className={`inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-bold transition border ${
+                activeCategory === 'ALL_EVENTS'
+                  ? 'bg-[#E6F7FF] text-[#0050B3] border-[#91D5FF] shadow-2xs'
+                  : 'bg-[#FAFAFA] text-[#595959] border-[#E8E8E8] hover:bg-white'
+              }`}
+            >
+              <Clock className="h-4 w-4" />
+              <span>Tất cả nhật ký hoạt động ({mergedAllEvents.length})</span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => setActiveCategory('REAL_SOS')}
               className={`inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-bold transition border ${
                 activeCategory === 'REAL_SOS'
@@ -189,34 +249,38 @@ export const EventHistoryView: React.FC<EventHistoryViewProps> = ({
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Tìm theo số điện thoại người thân..."
+                placeholder="Tìm theo tên hoặc SĐT người thân..."
                 className="w-full rounded-md border border-[#D9D9D9] bg-white pl-9 pr-3.5 py-1.5 text-xs text-[#262626] focus:border-[#1890FF] focus:outline-none transition"
               />
             </div>
 
-            {activeCategory === 'REAL_SOS' && (
-              <select
-                value={statusFilter}
-                onChange={(e) =>
-                  setStatusFilter(
-                    e.target.value as 'ALL' | 'ACTIVE' | 'RESOLVED'
-                  )
-                }
-                className="rounded-md border border-[#D9D9D9] bg-white px-3 py-1.5 text-xs text-[#262626] focus:border-[#1890FF] focus:outline-none transition"
-              >
-                <option value="ALL">
-                  Tất cả sự cố ({realSosEvents.length})
-                </option>
-                <option value="ACTIVE">Đang cần hỗ trợ</option>
-                <option value="RESOLVED">Đã hỗ trợ an toàn</option>
-              </select>
-            )}
+            <select
+              value={statusFilter}
+              onChange={(e) =>
+                setStatusFilter(
+                  e.target.value as 'ALL' | 'ACTIVE' | 'RESOLVED'
+                )
+              }
+              className="rounded-md border border-[#D9D9D9] bg-white px-3 py-1.5 text-xs text-[#262626] focus:border-[#1890FF] focus:outline-none transition"
+            >
+              <option value="ALL">
+                Tất cả trạng thái ({sourceList.length})
+              </option>
+              <option value="ACTIVE">Đang cần hỗ trợ</option>
+              <option value="RESOLVED">Đã hỗ trợ an toàn</option>
+            </select>
           </div>
         </div>
 
         {/* Category Context Notice */}
         <div className="px-6 py-2.5 bg-[#FAFAFA] border-b border-[#F0F0F0] flex flex-wrap items-center justify-between gap-2 text-xs text-[#595959]">
-          {activeCategory === 'REAL_SOS' ? (
+          {activeCategory === 'ALL_EVENTS' ? (
+            <span>
+              Toàn bộ nhật ký sự kiện và kiểm tra liên lạc được đồng bộ trực
+              tiếp từ <strong>{formatFriendlyDeviceName(deviceId)}</strong> trên
+              Firebase. Bấm vào từng mục để xem chi tiết tin nhắn và cuộc gọi.
+            </span>
+          ) : activeCategory === 'REAL_SOS' ? (
             <span>
               Danh sách các cảnh báo khẩn cấp thực tế từ{' '}
               <strong>{formatFriendlyDeviceName(deviceId)}</strong>. Bấm vào
@@ -224,8 +288,8 @@ export const EventHistoryView: React.FC<EventHistoryViewProps> = ({
             </span>
           ) : (
             <span className="text-[#0050B3]">
-              Danh sách các lần bấm kiểm tra thử nghiệm chức năng trên thiết bị
-              (Không phải sự cố tai nạn thực tế).
+              Danh sách các lần kích hoạt kiểm tra thử nghiệm chức năng SOS trên
+              thiết bị.
             </span>
           )}
         </div>
@@ -294,22 +358,29 @@ export const EventHistoryView: React.FC<EventHistoryViewProps> = ({
                     <div className="space-y-1.5 min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="text-sm font-bold text-[#262626]">
-                          {evt.test
-                            ? 'Kiểm tra tính năng liên lạc khẩn cấp'
-                            : 'Tín hiệu cầu cứu khẩn cấp SOS'}
+                          {getFriendlyTriggerText(evt.trigger, evt.test)}
                         </span>
+
+                        {evt.sequence !== undefined && (
+                          <span className="rounded bg-slate-100 border border-slate-200 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
+                            Lần #{evt.sequence}
+                          </span>
+                        )}
 
                         {evt.test ? (
                           <span className="rounded bg-[#E6F7FF] border border-[#91D5FF] px-2 py-0.5 text-[11px] font-semibold text-[#0050B3]">
-                            Kiểm tra thử nghiệm
+                            Chế độ kiểm tra
                           </span>
-                        ) : isRealActive ? (
+                        ) : null}
+
+                        {evt.active && !isResolved ? (
                           <span className="rounded bg-[#F5222D] px-2.5 py-0.5 text-[11px] font-bold text-white">
                             ● Đang cần hỗ trợ khẩn cấp
                           </span>
                         ) : isResolved ? (
                           <span className="rounded bg-[#F6FFED] border border-[#B7EB8F] px-2.5 py-0.5 text-[11px] font-bold text-[#389E0D]">
                             ✓ Đã hỗ trợ an toàn
+                            {evt.resolvedBy ? ` (${evt.resolvedBy})` : ''}
                           </span>
                         ) : (
                           <span className="rounded bg-[#FFF7E6] border border-[#FFD591] px-2.5 py-0.5 text-[11px] font-bold text-[#D46B08]">
@@ -343,9 +414,23 @@ export const EventHistoryView: React.FC<EventHistoryViewProps> = ({
                                   : 'text-[#CF1322]'
                               }
                             >
-                              {evt.answeredBy > 0
-                                ? `Người thân ưu tiên #${evt.answeredBy} đã nghe máy`
-                                : 'Chưa có người thân bắt máy'}
+                              {(() => {
+                                if (evt.answeredBy <= 0) {
+                                  return 'Chưa có người thân bắt máy';
+                                }
+                                const answeredCall = evt.calls.find(
+                                  (c) =>
+                                    c.priority === evt.answeredBy ||
+                                    c.result === 'ANSWERED'
+                                );
+                                const matchedContact = answeredCall
+                                  ? findContactForPhone(answeredCall.phone)
+                                  : null;
+                                if (matchedContact) {
+                                  return `${matchedContact.name} (${matchedContact.relationship}) đã nghe máy`;
+                                }
+                                return `Người thân ưu tiên #${evt.answeredBy} đã nghe máy`;
+                              })()}
                             </strong>
                           </span>
                         </span>
@@ -622,28 +707,38 @@ export const EventHistoryView: React.FC<EventHistoryViewProps> = ({
                     Không có thông tin cuộc gọi trong bản ghi này.
                   </div>
                 ) : (
-                  selectedEvent.calls.map((c: FirebaseSosCallAttempt) => (
-                    <div
-                      key={`${c.priority}_${c.phone}`}
-                      className="rounded bg-white border border-[#E8E8E8] px-3 py-2 flex flex-wrap items-center justify-between gap-2"
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#001529] text-white font-bold text-[11px]">
-                          {c.priority}
-                        </span>
-                        <div>
-                          <div className="font-bold text-[#262626]">
-                            {formatPhoneForDisplay(c.phone)}
-                          </div>
-                          <div className="text-[10.5px] text-[#8C8C8C]">
-                            Ưu tiên #{c.priority}
+                  selectedEvent.calls.map((c: FirebaseSosCallAttempt) => {
+                    const matchedContact = findContactForPhone(c.phone);
+                    return (
+                      <div
+                        key={`${c.priority}_${c.phone}`}
+                        className="rounded bg-white border border-[#E8E8E8] px-3 py-2 flex flex-wrap items-center justify-between gap-2"
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#001529] text-white font-bold text-[11px]">
+                            {c.priority}
+                          </span>
+                          <div>
+                            <div className="font-bold text-[#262626]">
+                              {matchedContact
+                                ? `${matchedContact.name} (${matchedContact.relationship}) — ${formatPhoneForDisplay(
+                                    c.phone
+                                  )}`
+                                : formatPhoneForDisplay(c.phone)}
+                            </div>
+                            <div className="text-[10.5px] text-[#8C8C8C]">
+                              Ưu tiên #{c.priority}
+                              {c.callEnabled === false
+                                ? ' • Tắt gọi điện (Chỉ nhắn tin)'
+                                : ''}
+                            </div>
                           </div>
                         </div>
-                      </div>
 
-                      {renderCallResultBadge(c.result)}
-                    </div>
-                  ))
+                        {renderCallResultBadge(c.result)}
+                      </div>
+                    );
+                  })
                 )}
               </div>
             </div>
