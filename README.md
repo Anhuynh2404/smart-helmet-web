@@ -254,7 +254,7 @@ npx vite preview
 
 ## 7. Đóng Gói & Triển Khai Sản Phẩm (Production Deployment)
 
-Dự án đã được cấu hình sẵn file `firebase.json` (trỏ thư mục `public` vào `dist` kèm quy tắc SPA rewrite) và `.firebaserc` (liên kết tới project `smart-helmet-iot-efc7e`).
+Dự án đã được cấu hình sẵn file `firebase.json` (trỏ `site` vào `cas-box`, thư mục `public` vào `dist` kèm quy tắc SPA rewrite) và `.firebaserc` (liên kết tới project `CAS_BOX` / `smart-helmet-iot-efc7e`).
 
 ### 7.1. Triển Khai Thủ Công Lên Firebase Hosting
 Thực hiện tuần tự các lệnh sau trên Terminal:
@@ -266,12 +266,12 @@ firebase login
 # Bước 2: Biên dịch mã nguồn TypeScript và đóng gói tài nguyên tối ưu vào thư mục dist/
 npm run build
 
-# Bước 3: Đẩy bản build lên Firebase Hosting
-firebase deploy --only hosting
+# Bước 3: Đẩy bản build lên Firebase Hosting (site: cas-box)
+firebase deploy --only hosting:cas-box
 ```
 
 Sau khi lệnh hoàn tất, Firebase CLI sẽ trả về đường dẫn chính thức của Website:
-- **Hosting URL:** `https://smart-helmet-iot-efc7e.web.app` (hoặc `https://smart-helmet-iot-efc7e.firebaseapp.com`)
+- **Hosting URL:** `https://cas-box.web.app` (hoặc `https://cas-box.firebaseapp.com`)
 
 ### 7.2. Triển Khai Tự Động Qua GitHub Actions (CI/CD)
 Nếu bạn đã kích hoạt GitHub Actions khi chạy `firebase init hosting`:
