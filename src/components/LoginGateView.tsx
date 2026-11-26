@@ -54,9 +54,11 @@ export const LoginGateView: React.FC<LoginGateViewProps> = ({
       <div className="w-full max-w-md rounded-xl border border-[#E8E8E8] bg-white p-7 sm:p-8 shadow-[0_6px_24px_rgba(0,21,41,0.06)] space-y-6">
         {/* Brand Header */}
         <div className="flex flex-col items-center text-center">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#1890FF] text-white font-bold text-base shadow-xs">
-            CB
-          </div>
+          <img
+            src="/cas-box-logo.jpg"
+            alt="CAS-BOX Logo"
+            className="h-16 w-16 rounded-2xl object-cover shadow-md border border-slate-200"
+          />
           <h1 className="mt-4 text-xl font-bold text-zinc-900">
             Đăng nhập CAS-BOX
           </h1>
