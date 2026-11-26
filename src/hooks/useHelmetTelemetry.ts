@@ -13,6 +13,7 @@ import {
   FirebaseGpsNode,
   FirebaseHelmetTelemetry,
   GpsFixType,
+  LastValidGpsPosition,
   LiveTelemetrySample,
   NormalizedGpsStatus,
 } from '../types/helmet';
@@ -47,8 +48,14 @@ export interface UseHelmetTelemetryResult {
 export const OFFLINE_TIMEOUT_SECONDS = 16;
 // Ngưỡng đánh giá độ mới của bản ghi GPS CURRENT dựa trên `status/gps/updatedAt`: 30 giây
 export const GPS_REALTIME_FRESHNESS_SECONDS = 30;
+// Vị trí trung tâm thành phố mặc định khi thiết bị chưa có bất kỳ tọa độ hợp lệ nào trước đó (Đà Nẵng / Trung tâm đô thị)
+export const DEFAULT_CITY_MAP_CENTER: [number, number] = [16.0544, 108.2022];
+export const DEFAULT_CITY_MAP_ZOOM = 13;
+
 const MAX_LIVE_SAMPLES = 20;
 const geocodeCache = new Map<string, string>();
+// Bộ nhớ lưu vị trí hợp lệ gần nhất (`lastValidPosition`) theo từng thiết bị để lọc tọa độ (0, 0) / chưa chốt vệ tinh
+const lastValidPositionByDeviceCache = new Map<string, LastValidGpsPosition>();
 
 /**
  * Quy đổi mọi định dạng timestamp (Unix ms, Unix s, chuỗi ISO UTC có hoặc không có hậu tố Z)
@@ -172,22 +179,44 @@ export function parseUtcTimestamp(
     return `${formatToVietnamTimezone(parsed, true)} [Gốc: ${yyyy}-${mm}-${dd} ${hh}:${min}:${ss} UTC]`;
   }
 
-  function isValidLatLonPair(lat: unknown, lon: unknown): boolean {
-    return (
-      typeof lat === 'number' &&
-      typeof lon === 'number' &&
-      Number.isFinite(lat) &&
-      Number.isFinite(lon) &&
-      Math.abs(lat) <= 90 &&
-      Math.abs(lon) <= 180 &&
-      !(lat === 0 && lon === 0)
-    );
+  function parseCoordinateNumber(val: unknown): number | null {
+    if (typeof val === 'number' && Number.isFinite(val)) {
+      return val;
+    }
+    if (typeof val === 'string' && val.trim() !== '') {
+      const parsed = Number(val.trim());
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Kiểm tra cặp tọa độ GPS hợp lệ:
+   * - Phải là số hữu hạn nằm trong khoảng [-90..90] và [-180..180]
+   * - Loại bỏ tọa độ (0, 0) hoặc tọa độ có lat = 0 / lon = 0 khi module GPS chưa chốt được vệ tinh
+   */
+  export function isValidLatLonPair(lat: unknown, lon: unknown): boolean {
+    const numLat = parseCoordinateNumber(lat);
+    const numLon = parseCoordinateNumber(lon);
+    if (numLat === null || numLon === null) {
+      return false;
+    }
+    if (Math.abs(numLat) > 90 || Math.abs(numLon) > 180) {
+      return false;
+    }
+    if (Math.abs(numLat) < 0.0001 || Math.abs(numLon) < 0.0001) {
+      return false;
+    }
+    return true;
   }
 
   /**
    * Chuẩn hóa dữ liệu GPS từ `helmets/{deviceId}/status/gps` cho Firmware V2.4.3-dev
    * và tương thích ngược với V2.4.2-dev khi chưa có trường `type`.
-   * Đánh giá độ mới dựa trên `updatedAt` để không coi dữ liệu CURRENT đã upload từ lâu là vị trí realtime.
+   * - Lọc tọa độ (0, 0) / không hợp lệ khi GPS chưa chốt vệ tinh và giữ nguyên `lastValidPosition` gần nhất.
+   * - Đánh giá độ mới dựa trên `updatedAt` để không coi dữ liệu CURRENT đã upload từ lâu là vị trí realtime.
    */
   export function normalizeGpsStatusNode(
     gps: FirebaseGpsNode | null | undefined,
@@ -198,26 +227,24 @@ export function parseUtcTimestamp(
     const cleanId = normalizeDeviceId(deviceId);
     const sourcePath = `helmets/${cleanId}/status/gps`;
 
-    const rawLatCandidate =
-      typeof gps?.lat === 'number'
-        ? gps.lat
-        : typeof gps?.latitude === 'number'
-          ? gps.latitude
-          : null;
-    const rawLonCandidate =
-      typeof gps?.lon === 'number'
-        ? gps.lon
-        : typeof gps?.longitude === 'number'
-          ? gps.longitude
-          : null;
+    const rawLatCandidate = parseCoordinateNumber(gps?.lat ?? gps?.latitude);
+    const rawLonCandidate = parseCoordinateNumber(gps?.lon ?? gps?.longitude);
+    const rawLastLatCandidate = parseCoordinateNumber(gps?.lastLat);
+    const rawLastLonCandidate = parseCoordinateNumber(gps?.lastLon);
 
     const hasValidCurrentLatLon = isValidLatLonPair(
       rawLatCandidate,
       rawLonCandidate
     );
-    const hasValidLastLatLon = isValidLatLonPair(gps?.lastLat, gps?.lastLon);
+    const hasValidLastLatLon = isValidLatLonPair(
+      rawLastLatCandidate,
+      rawLastLonCandidate
+    );
 
-    const validFlag = gps?.valid === true || gps?.fix === true;
+    const explicitValidFalse = gps?.valid === false || gps?.fix === false;
+    const validFlag =
+      !explicitValidFalse && (gps?.valid === true || gps?.fix === true);
+
     const uartOpen =
       typeof gps?.uartOpen === 'boolean' ? gps.uartOpen : null;
     const sats =
@@ -235,6 +262,17 @@ export function parseUtcTimestamp(
         ? gps.ageMs
         : null;
 
+    // Đánh giá độ mới dựa trên `updatedAt` (fallback sang `lastSeen` nếu V2.4.2-dev chưa có `gps.updatedAt`)
+    const updatedAtDate = parseUtcTimestamp(
+      gps?.updatedAt ?? fallbackStatusLastSeen,
+      null
+    );
+    const updatedAtMs = updatedAtDate ? updatedAtDate.getTime() : null;
+    const updatedAtText =
+      updatedAtDate !== null
+        ? formatToVietnamTimezone(updatedAtDate, true)
+        : 'Chưa có thời điểm cập nhật';
+
     // 1. Xác định rawType ('CURRENT' | 'OLD' | 'NONE') — hỗ trợ V2.4.3-dev `type` và tương thích ngược V2.4.2-dev
     let rawType: GpsFixType = 'NONE';
     let isInferredLegacyType = false;
@@ -243,7 +281,7 @@ export function parseUtcTimestamp(
       typeof gps?.type === 'string' ? gps.type.trim().toUpperCase() : '';
 
     if (explicitType === 'CURRENT') {
-      if (hasValidCurrentLatLon) {
+      if (hasValidCurrentLatLon && !explicitValidFalse) {
         rawType = 'CURRENT';
       } else if (hasValidLastLatLon) {
         rawType = 'OLD';
@@ -263,58 +301,104 @@ export function parseUtcTimestamp(
       isInferredLegacyType = Boolean(gps);
       if (validFlag && hasValidCurrentLatLon) {
         rawType = 'CURRENT';
-      } else if (hasValidLastLatLon || hasValidCurrentLatLon) {
+      } else if (hasValidLastLatLon || (hasValidCurrentLatLon && !explicitValidFalse)) {
         rawType = 'OLD';
       } else {
         rawType = 'NONE';
       }
     }
 
-    // 2. Gán tọa độ hiển thị theo đúng loại CURRENT / OLD / NONE (tuyệt đối không tạo tọa độ giả khi NONE)
-    const lat = hasValidCurrentLatLon ? (rawLatCandidate as number) : null;
-    const lon = hasValidCurrentLatLon ? (rawLonCandidate as number) : null;
-    const lastLat = hasValidLastLatLon ? (gps!.lastLat as number) : null;
-    const lastLon = hasValidLastLatLon ? (gps!.lastLon as number) : null;
+    const lat =
+      hasValidCurrentLatLon && !explicitValidFalse
+        ? (rawLatCandidate as number)
+        : null;
+    const lon =
+      hasValidCurrentLatLon && !explicitValidFalse
+        ? (rawLonCandidate as number)
+        : null;
+    const lastLat = hasValidLastLatLon ? (rawLastLatCandidate as number) : null;
+    const lastLon = hasValidLastLatLon ? (rawLastLonCandidate as number) : null;
 
+    // 2. Cập nhật hoặc khôi phục `lastValidPosition` cho thiết bị
+    if (rawType === 'CURRENT' && lat !== null && lon !== null) {
+      lastValidPositionByDeviceCache.set(cleanId, {
+        lat,
+        lon,
+        updatedAtMs,
+        updatedAtText,
+        sats,
+        hdop,
+      });
+    } else if (rawType === 'OLD') {
+      const candidateOldLat = lastLat ?? (hasValidCurrentLatLon ? (rawLatCandidate as number) : null);
+      const candidateOldLon = lastLon ?? (hasValidCurrentLatLon ? (rawLonCandidate as number) : null);
+      if (candidateOldLat !== null && candidateOldLon !== null) {
+        const existing = lastValidPositionByDeviceCache.get(cleanId);
+        lastValidPositionByDeviceCache.set(cleanId, {
+          lat: candidateOldLat,
+          lon: candidateOldLon,
+          updatedAtMs: existing?.updatedAtMs ?? updatedAtMs,
+          updatedAtText: existing?.updatedAtText ?? updatedAtText,
+          sats: sats ?? existing?.sats ?? null,
+          hdop: hdop ?? existing?.hdop ?? null,
+        });
+      }
+    }
+
+    const cachedLastValid = lastValidPositionByDeviceCache.get(cleanId) ?? null;
+
+    // Phát hiện gói tin gửi lên có tọa độ (0,0) / không hợp lệ hoặc chưa chốt vệ tinh
+    const hasInvalidIncomingCoords =
+      !hasValidCurrentLatLon ||
+      explicitValidFalse ||
+      explicitType === 'NONE';
+
+    // 3. Gán tọa độ hiển thị (`displayLat`, `displayLon`):
+    // - Khi gói tin mới có tọa độ không hợp lệ (0,0), giữ nguyên `lastValidPosition` gần nhất của marker.
+    // - Nếu chưa từng có vị trí hợp lệ nào trước đó (`cachedLastValid === null`), giữ `displayLat = null`, `displayLon = null`
+    //   để bản đồ hiển thị ở vị trí trung tâm thành phố mặc định thay vì đặt marker tại (0, 0).
     let displayLat: number | null = null;
     let displayLon: number | null = null;
+    let usingLastValidPosition = false;
 
-    if (rawType === 'CURRENT') {
+    if (rawType === 'CURRENT' && lat !== null && lon !== null) {
       displayLat = lat;
       displayLon = lon;
+      usingLastValidPosition = false;
     } else if (rawType === 'OLD') {
-      displayLat = lastLat ?? lat;
-      displayLon = lastLon ?? lon;
+      displayLat = lastLat ?? lat ?? cachedLastValid?.lat ?? null;
+      displayLon = lastLon ?? lon ?? cachedLastValid?.lon ?? null;
+      usingLastValidPosition = displayLat !== null && displayLon !== null;
+    } else if (cachedLastValid !== null) {
+      displayLat = cachedLastValid.lat;
+      displayLon = cachedLastValid.lon;
+      usingLastValidPosition = true;
     } else {
       displayLat = null;
       displayLon = null;
+      usingLastValidPosition = false;
     }
 
-    // 3. Đánh giá độ mới dựa trên `updatedAt` (fallback sang `lastSeen` nếu V2.4.2-dev chưa có `gps.updatedAt`)
-    const updatedAtDate = parseUtcTimestamp(
-      gps?.updatedAt ?? fallbackStatusLastSeen,
-      null
-    );
-    const updatedAtMs = updatedAtDate ? updatedAtDate.getTime() : null;
-    const updatedAtText =
-      updatedAtDate !== null
-        ? formatToVietnamTimezone(updatedAtDate, true)
-        : 'Chưa có thời điểm cập nhật';
+    const isSearchingSatellites =
+      rawType !== 'CURRENT' ||
+      hasInvalidIncomingCoords ||
+      usingLastValidPosition;
 
     const secondsSinceGpsUpdate =
       updatedAtMs !== null
         ? Math.max(0, Math.floor((nowMs - updatedAtMs) / 1000))
         : null;
 
-    // Chỉ coi dữ liệu CURRENT là vị trí realtime khi `updatedAt` còn mới (<= 30 giây)
+    // Chỉ coi dữ liệu CURRENT là vị trí realtime khi `updatedAt` còn mới (<= 30 giây) và không phải đang dùng lastValidPosition
     const isFreshRealtime =
       rawType === 'CURRENT' &&
+      !usingLastValidPosition &&
       validFlag &&
       secondsSinceGpsUpdate !== null &&
       secondsSinceGpsUpdate <= GPS_REALTIME_FRESHNESS_SECONDS;
 
     const isStaleCurrentUpload =
-      rawType === 'CURRENT' && !isFreshRealtime;
+      rawType === 'CURRENT' && !usingLastValidPosition && !isFreshRealtime;
 
     const lastUtcText = formatGpsLastUtcYmdHms(
       gps?.lastUtcYMD,
@@ -322,7 +406,7 @@ export function parseUtcTimestamp(
     );
 
     const googleMapsUrl =
-      rawType !== 'NONE' && displayLat !== null && displayLon !== null
+      displayLat !== null && displayLon !== null
         ? `https://www.google.com/maps?q=${displayLat.toFixed(
           6
         )},${displayLon.toFixed(6)}`
@@ -339,6 +423,10 @@ export function parseUtcTimestamp(
       lastLon,
       displayLat,
       displayLon,
+      hasInvalidIncomingCoords,
+      isSearchingSatellites,
+      usingLastValidPosition,
+      lastValidPosition: cachedLastValid,
       sats,
       hdop,
       ageMs,
@@ -551,14 +639,16 @@ export function parseUtcTimestamp(
           ) {
             setErrorCode('PERMISSION_DENIED');
             setError(
-              'Từ chối quyền đọc dữ liệu (permission_denied). Vui lòng đăng nhập tài khoản hợp lệ.'
+              'Tài khoản hiện tại chưa được cấp quyền xem thiết bị này. Vui lòng đăng nhập tài khoản hợp lệ.'
             );
           } else if (err.code === 'CONFIG_MISSING') {
             setErrorCode('CONFIG_MISSING');
-            setError(msg);
+            setError('Hệ thống chưa hoàn tất cấu hình kết nối máy chủ.');
           } else {
             setErrorCode('NETWORK_ERROR');
-            setError(`Không thể đọc dữ liệu tại /${telemetryPath}: ${msg}`);
+            setError(
+              'Tạm thời không thể tải dữ liệu thiết bị. Hệ thống đang tự động thử kết nối lại...'
+            );
           }
         }
       );
@@ -598,17 +688,16 @@ export function parseUtcTimestamp(
     );
 
     // 5. Reverse Geocoding: Convert active displayLat / displayLon into a concrete street/area address
-    // Strictly returns null when rawType === 'NONE' (no fake coordinates)
+    // Works for both live CURRENT coordinates and retained lastValidPosition
     useEffect(() => {
       if (
-      gpsStatus.rawType === 'NONE' ||
-          gpsStatus.displayLat === null ||
-          gpsStatus.displayLon === null
-    ) {
-      setResolvedAddress(null);
-      setAddressLoading(false);
-      return;
-    }
+        gpsStatus.displayLat === null ||
+        gpsStatus.displayLon === null
+      ) {
+        setResolvedAddress(null);
+        setAddressLoading(false);
+        return;
+      }
 
     const lat = gpsStatus.displayLat;
     const lon = gpsStatus.displayLon;
@@ -653,12 +742,12 @@ export function parseUtcTimestamp(
           geocodeCache.set(cacheKey, formatted);
           setResolvedAddress(formatted);
         } else {
-          setResolvedAddress(`${lat.toFixed(5)}°N, ${lon.toFixed(5)}°E`);
+          setResolvedAddress('Đã xác định vị trí của thiết bị trên bản đồ');
         }
       })
       .catch(() => {
         if (!cancelled) {
-          setResolvedAddress(`${lat.toFixed(5)}°N, ${lon.toFixed(5)}°E`);
+          setResolvedAddress('Đã xác định vị trí của thiết bị trên bản đồ');
         }
       })
       .finally(() => {

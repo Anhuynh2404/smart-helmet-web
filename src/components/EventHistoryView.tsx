@@ -358,8 +358,7 @@ export const EventHistoryView: React.FC<EventHistoryViewProps> = ({
                         evt.loc.lon !== undefined ? (
                           <>
                             <span>
-                              Tọa độ: {evt.loc.lat.toFixed(5)},{' '}
-                              {evt.loc.lon.toFixed(5)}
+                              Đã định vị được vị trí trên bản đồ
                             </span>
                             {evt.loc.utc && (
                               <span>
@@ -384,7 +383,7 @@ export const EventHistoryView: React.FC<EventHistoryViewProps> = ({
                           </>
                         ) : (
                           <span className="text-[#CF1322]">
-                            Chưa xác định được tọa độ vị trí khi phát tín hiệu
+                            Chưa xác định được vị trí khi phát tín hiệu
                           </span>
                         )}
                       </div>
@@ -532,10 +531,11 @@ export const EventHistoryView: React.FC<EventHistoryViewProps> = ({
               selectedEvent.loc.lon !== undefined ? (
                 <>
                   <div className="flex justify-between">
-                    <span className="text-[#8C8C8C]">Tọa độ bản đồ:</span>
+                    <span className="text-[#8C8C8C]">Trạng thái định vị:</span>
                     <span className="font-semibold text-[#262626]">
-                      {selectedEvent.loc.lat.toFixed(5)},{' '}
-                      {selectedEvent.loc.lon.toFixed(5)}
+                      {selectedEvent.loc.type === 'CURRENT'
+                        ? 'Đã xác định vị trí trực tiếp tại chỗ'
+                        : 'Đã lưu vị trí gần nhất trước khi mất sóng'}
                     </span>
                   </div>
                   {selectedEvent.loc.utc && (
@@ -566,7 +566,7 @@ export const EventHistoryView: React.FC<EventHistoryViewProps> = ({
                 </>
               ) : (
                 <div className="text-[#CF1322]">
-                  Thiết bị chưa thu thập được tọa độ định vị tại thời điểm phát
+                  Thiết bị chưa thu thập được vị trí định vị tại thời điểm phát
                   tín hiệu.
                 </div>
               )}

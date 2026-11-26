@@ -565,8 +565,8 @@ return (
                   </span>
                 </div>
                 <div className="text-xs sm:text-sm font-bold text-white mt-0.5">
-                  Phát hiện tín hiệu cầu cứu khẩn cấp! Vị trí trên bản đồ đã
-                  chuyển sang Marker đỏ nhấp nháy.
+                  Phát hiện tín hiệu cầu cứu khẩn cấp! Vị trí của người sử dụng
+                  đang được đánh dấu khẩn cấp trên bản đồ.
                 </div>
               </div>
             </div>
@@ -580,7 +580,7 @@ return (
                   className="inline-flex items-center gap-1.5 rounded-lg bg-[#FAAD14] px-3 py-2 text-xs font-extrabold text-[#262626] hover:bg-[#FFC53D] transition shadow-sm animate-pulse"
                 >
                   <Volume2 className="h-4 w-4" />
-                  <span>Bấm để phát còi báo động (Trình duyệt chặn Autoplay)</span>
+                  <span>Bấm vào đây để phát âm thanh còi báo động</span>
                 </button>
               ) : (
                 <button
@@ -936,11 +936,17 @@ return (
             error={profileError}
             onSelectUser={(u) => {
               setCurrentUser(u);
-              showToast(`Đã chuyển sang góc nhìn: ${u.role}.`);
+              const friendlyRole =
+                u.role === 'OWNER'
+                  ? 'Chủ thiết bị'
+                  : u.role === 'EMERGENCY_CONTACT'
+                  ? 'Người thân gia đình'
+                  : 'Quản trị viên';
+              showToast(`Đã chuyển sang góc nhìn: ${friendlyRole}.`);
             }}
             onSaveProfileToCloud={async (updated) => {
               await saveCloudProfile(updated);
-              showToast('Đã lưu thông tin hồ sơ lên Cloud.');
+              showToast('Đã lưu thông tin hồ sơ cá nhân.');
             }}
             onLoggedOut={() => {
               setActiveTab('dashboard');

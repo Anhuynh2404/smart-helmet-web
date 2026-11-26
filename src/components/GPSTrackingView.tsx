@@ -15,6 +15,11 @@ import {
   Satellite,
 } from 'lucide-react';
 import {
+  DEFAULT_CITY_MAP_CENTER,
+  DEFAULT_CITY_MAP_ZOOM,
+  isValidLatLonPair,
+} from '../hooks/useHelmetTelemetry';
+import {
   FirebaseHelmetTelemetry,
   FirebaseSosEventRecord,
   NormalizedGpsStatus,
@@ -209,6 +214,12 @@ export const GPSTrackingView: React.FC<GPSTrackingViewProps> = ({
 }) => {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
+  const markerInstanceRef = useRef<L.Marker | null>(null);
+  const lastPannedCoordsRef = useRef<{
+    deviceId: string;
+    lat: number;
+    lon: number;
+  } | null>(null);
 
   const isSosActive = Boolean(activeEmergencySos);
   const isStaleOrOffline = Boolean(isServerDisconnected || isStale);
@@ -217,6 +228,10 @@ export const GPSTrackingView: React.FC<GPSTrackingViewProps> = ({
     rawType,
     displayLat,
     displayLon,
+    hasInvalidIncomingCoords,
+    isSearchingSatellites,
+    usingLastValidPosition,
+    lastValidPosition,
     sats,
     updatedAtText,
     secondsSinceGpsUpdate,
@@ -226,26 +241,35 @@ export const GPSTrackingView: React.FC<GPSTrackingViewProps> = ({
     googleMapsUrl,
   } = gpsStatus;
 
-  // Nếu đang có SOS mà status/gps chưa có tọa độ, fallback sang tọa độ trong bản ghi SOS để marker đỏ luôn hiển thị
-  const effectiveLat =
-    displayLat ??
-    (isSosActive && typeof activeEmergencySos?.loc.lat === 'number'
-      ? activeEmergencySos.loc.lat
-      : null);
-  const effectiveLon =
-    displayLon ??
-    (isSosActive && typeof activeEmergencySos?.loc.lon === 'number'
-      ? activeEmergencySos.loc.lon
-      : null);
+  // Nếu đang có SOS mà status/gps chưa có tọa độ hợp lệ, chỉ fallback sang tọa độ SOS nếu tọa độ SOS hợp lệ (khác 0,0)
+  const validSosLat =
+    isSosActive &&
+    isValidLatLonPair(activeEmergencySos?.loc.lat, activeEmergencySos?.loc.lon)
+      ? (activeEmergencySos!.loc.lat as number)
+      : null;
+  const validSosLon =
+    isSosActive &&
+    isValidLatLonPair(activeEmergencySos?.loc.lat, activeEmergencySos?.loc.lon)
+      ? (activeEmergencySos!.loc.lon as number)
+      : null;
 
-  const hasMapCoordinates =
-    effectiveLat !== null &&
-    effectiveLon !== null &&
-    !(effectiveLat === 0 && effectiveLon === 0);
+  const effectiveLat = displayLat ?? validSosLat;
+  const effectiveLon = displayLon ?? validSosLon;
+
+  const hasMapCoordinates = isValidLatLonPair(effectiveLat, effectiveLon);
+
+  const isShowingLastValidWhileSearching =
+    hasMapCoordinates &&
+    (usingLastValidPosition ||
+      hasInvalidIncomingCoords ||
+      isSearchingSatellites ||
+      rawType === 'OLD');
 
   const effectiveMapsUrl =
     googleMapsUrl ||
-    activeEmergencySos?.loc.mapUrl ||
+    (hasMapCoordinates && activeEmergencySos?.loc.mapUrl
+      ? activeEmergencySos.loc.mapUrl
+      : null) ||
     (hasMapCoordinates
       ? `https://www.google.com/maps?q=${effectiveLat!.toFixed(
           6
@@ -266,20 +290,24 @@ export const GPSTrackingView: React.FC<GPSTrackingViewProps> = ({
   };
 
   useEffect(() => {
-    if (!hasMapCoordinates || effectiveLat === null || effectiveLon === null) {
-      if (mapInstanceRef.current) {
-        mapInstanceRef.current.remove();
-        mapInstanceRef.current = null;
-      }
-      return;
-    }
-
     if (!mapContainerRef.current) return;
 
+    // Khởi tạo bản đồ:
+    // - Nếu đã có tọa độ hợp lệ (hoặc lastValidPosition): đặt tâm tại vị trí đó.
+    // - Trường hợp chưa có vị trí hợp lệ nào trước đó: giữ bản đồ ở vị trí mặc định trung tâm thành phố (tuyệt đối không nhảy ra 0, 0).
     if (!mapInstanceRef.current) {
+      const initialCenter: [number, number] =
+        hasMapCoordinates && effectiveLat !== null && effectiveLon !== null
+          ? [effectiveLat, effectiveLon]
+          : DEFAULT_CITY_MAP_CENTER;
+      const initialZoom =
+        hasMapCoordinates && effectiveLat !== null && effectiveLon !== null
+          ? 16
+          : DEFAULT_CITY_MAP_ZOOM;
+
       const map = L.map(mapContainerRef.current, {
-        center: [effectiveLat, effectiveLon],
-        zoom: 16,
+        center: initialCenter,
+        zoom: initialZoom,
         zoomControl: true,
       });
 
@@ -289,30 +317,51 @@ export const GPSTrackingView: React.FC<GPSTrackingViewProps> = ({
       }).addTo(map);
 
       mapInstanceRef.current = map;
+
+      if (hasMapCoordinates && effectiveLat !== null && effectiveLon !== null) {
+        lastPannedCoordsRef.current = {
+          deviceId: targetDeviceId,
+          lat: effectiveLat,
+          lon: effectiveLon,
+        };
+      }
     }
 
     const map = mapInstanceRef.current;
 
-    map.eachLayer((layer) => {
-      if (!(layer instanceof L.TileLayer)) {
-        map.removeLayer(layer);
+    // Trường hợp chưa có vị trí hợp lệ nào trước đó: xóa marker (không đặt marker tại 0,0) và giữ nguyên bản đồ ở trung tâm thành phố
+    if (!hasMapCoordinates || effectiveLat === null || effectiveLon === null) {
+      if (markerInstanceRef.current) {
+        map.removeLayer(markerInstanceRef.current);
+        markerInstanceRef.current = null;
       }
-    });
+      if (
+        lastPannedCoordsRef.current &&
+        lastPannedCoordsRef.current.deviceId !== targetDeviceId
+      ) {
+        lastPannedCoordsRef.current = null;
+        map.setView(DEFAULT_CITY_MAP_CENTER, DEFAULT_CITY_MAP_ZOOM);
+      }
+      return;
+    }
+
+    const effectiveRawTypeForIcon = isShowingLastValidWhileSearching
+      ? 'OLD'
+      : rawType;
 
     const markerIcon = buildDeviceLeafletMarkerIcon(
       activeModeProfile,
       isSosActive,
-      rawType,
+      effectiveRawTypeForIcon,
       isStaleCurrentUpload
     );
 
     const addressTitle =
-      resolvedAddress ||
-      `${effectiveLat.toFixed(5)}, ${effectiveLon.toFixed(5)}`;
+      resolvedAddress || 'Đã xác định vị trí của thiết bị trên bản đồ';
 
     const accent = isSosActive
       ? '#F5222D'
-      : rawType === 'OLD'
+      : isShowingLastValidWhileSearching
       ? '#D46B08'
       : isStaleCurrentUpload
       ? '#FA8C16'
@@ -320,44 +369,84 @@ export const GPSTrackingView: React.FC<GPSTrackingViewProps> = ({
 
     const statusPopupBadge = isSosActive
       ? '🔴 ĐANG CẦU CỨU SOS!'
-      : rawType === 'CURRENT'
-      ? isFreshRealtime
-        ? 'Vị trí trực tiếp'
-        : 'Vị trí ghi nhận gần nhất'
-      : 'Vị trí lưu cuối cùng';
+      : isShowingLastValidWhileSearching
+      ? 'GPS đang dò vệ tinh (Vị trí gần nhất)'
+      : isFreshRealtime
+      ? 'Vị trí trực tiếp'
+      : 'Vị trí ghi nhận gần nhất';
 
-    const marker = L.marker([effectiveLat, effectiveLon], { icon: markerIcon })
-      .addTo(map)
-      .bindPopup(
-        `<div style="min-width:230px">
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:4px">
-            <span style="font-weight:700;color:${accent};font-size:12.5px">
-              ${formatFriendlyDeviceName(targetDeviceId)}
-            </span>
-            <span style="background:${accent};color:#fff;padding:1px 8px;border-radius:999px;font-size:10.5px;font-weight:700">
-              ${statusPopupBadge}
-            </span>
-          </div>
-          <div style="font-size:12.5px;font-weight:600;color:#18181B;margin-bottom:4px">${addressTitle}</div>
-          <div style="font-size:11px;color:#52525B">
-            Chế độ: <strong>${activeModeProfile.label}</strong> • Tọa độ: ${effectiveLat.toFixed(
-          5
-        )}, ${effectiveLon.toFixed(5)}
-          </div>
-          <div style="font-size:11px;color:#71717A;margin-top:3px">
-            Cập nhật lúc: ${cleanTimeText(updatedAtText)}
-          </div>
-        </div>`
-      );
+    const displayUpdatedTime =
+      usingLastValidPosition && lastValidPosition?.updatedAtText
+        ? lastValidPosition.updatedAtText
+        : updatedAtText;
 
-    marker.openPopup();
-    map.setView([effectiveLat, effectiveLon], map.getZoom());
+    const popupHtml = `<div style="min-width:235px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:4px">
+        <span style="font-weight:700;color:${accent};font-size:12.5px">
+          ${formatFriendlyDeviceName(targetDeviceId)}
+        </span>
+        <span style="background:${accent};color:#fff;padding:1px 8px;border-radius:999px;font-size:10.5px;font-weight:700">
+          ${statusPopupBadge}
+        </span>
+      </div>
+      <div style="font-size:12.5px;font-weight:600;color:#18181B;margin-bottom:4px">${addressTitle}</div>
+      <div style="font-size:11px;color:#52525B">
+        Chế độ bảo vệ: <strong>${activeModeProfile.label}</strong>
+      </div>
+      <div style="font-size:11px;color:#71717A;margin-top:3px">
+        Cập nhật lúc: ${cleanTimeText(displayUpdatedTime)}
+      </div>
+    </div>`;
+
+    if (!markerInstanceRef.current) {
+      markerInstanceRef.current = L.marker([effectiveLat, effectiveLon], {
+        icon: markerIcon,
+      })
+        .addTo(map)
+        .bindPopup(popupHtml);
+      markerInstanceRef.current.openPopup();
+    } else {
+      markerInstanceRef.current.setIcon(markerIcon);
+      markerInstanceRef.current.setPopupContent(popupHtml);
+    }
+
+    // Chỉ di chuyển marker và pan bản đồ khi tọa độ hợp lệ thực sự thay đổi (hoặc lần đầu có tọa độ hợp lệ).
+    // Khi nhận gói tin có tọa độ không hợp lệ (0,0 / đang dò vệ tinh), TUYỆT ĐỐI giữ nguyên vị trí marker và không pan/zoom bản đồ!
+    const prevPanned = lastPannedCoordsRef.current;
+    const isFirstValidForDevice =
+      !prevPanned || prevPanned.deviceId !== targetDeviceId;
+    const hasValidCoordsMoved =
+      prevPanned !== null &&
+      (Math.abs(prevPanned.lat - effectiveLat) > 0.000001 ||
+        Math.abs(prevPanned.lon - effectiveLon) > 0.000001);
+
+    if (isFirstValidForDevice) {
+      markerInstanceRef.current.setLatLng([effectiveLat, effectiveLon]);
+      map.setView([effectiveLat, effectiveLon], 16);
+      lastPannedCoordsRef.current = {
+        deviceId: targetDeviceId,
+        lat: effectiveLat,
+        lon: effectiveLon,
+      };
+    } else if (!usingLastValidPosition && !hasInvalidIncomingCoords && hasValidCoordsMoved) {
+      markerInstanceRef.current.setLatLng([effectiveLat, effectiveLon]);
+      map.setView([effectiveLat, effectiveLon], map.getZoom());
+      lastPannedCoordsRef.current = {
+        deviceId: targetDeviceId,
+        lat: effectiveLat,
+        lon: effectiveLon,
+      };
+    }
   }, [
     hasMapCoordinates,
     effectiveLat,
     effectiveLon,
     isSosActive,
     rawType,
+    isShowingLastValidWhileSearching,
+    usingLastValidPosition,
+    hasInvalidIncomingCoords,
+    lastValidPosition,
     isFreshRealtime,
     isStaleCurrentUpload,
     updatedAtText,
@@ -368,6 +457,7 @@ export const GPSTrackingView: React.FC<GPSTrackingViewProps> = ({
 
   useEffect(() => {
     return () => {
+      markerInstanceRef.current = null;
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
@@ -408,7 +498,7 @@ export const GPSTrackingView: React.FC<GPSTrackingViewProps> = ({
               {isSosActive && (
                 <span className="inline-flex items-center gap-1.5 rounded-full bg-[#F5222D] px-3 py-0.5 text-xs font-extrabold text-white animate-pulse">
                   <AlertOctagon className="h-3.5 w-3.5" />
-                  ĐANG PHÁT TÍN HIỆU SOS (Marker Đỏ Nhấp Nháy)
+                  ĐANG PHÁT TÍN HIỆU CẦU CỨU KHẨN CẤP
                 </span>
               )}
 
@@ -420,14 +510,18 @@ export const GPSTrackingView: React.FC<GPSTrackingViewProps> = ({
                 </span>
               )}
 
-              {!isSosActive && rawType === 'CURRENT' && isFreshRealtime && (
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-[#F6FFED] border border-[#B7EB8F] px-2.5 py-0.5 text-xs font-bold text-[#389E0D]">
-                  <span className="h-1.5 w-1.5 rounded-full bg-[#52C41A]" />
-                  Định vị trực tiếp
-                </span>
-              )}
+              {!isSosActive &&
+                !isShowingLastValidWhileSearching &&
+                rawType === 'CURRENT' &&
+                isFreshRealtime && (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-[#F6FFED] border border-[#B7EB8F] px-2.5 py-0.5 text-xs font-bold text-[#389E0D]">
+                    <span className="h-1.5 w-1.5 rounded-full bg-[#52C41A]" />
+                    Định vị trực tiếp
+                  </span>
+                )}
 
               {!isSosActive &&
+                !isShowingLastValidWhileSearching &&
                 rawType === 'CURRENT' &&
                 isStaleCurrentUpload && (
                   <span className="inline-flex items-center gap-1.5 rounded-full bg-[#FFF7E6] border border-[#FFD591] px-2.5 py-0.5 text-xs font-bold text-[#D46B08]">
@@ -437,17 +531,17 @@ export const GPSTrackingView: React.FC<GPSTrackingViewProps> = ({
                   </span>
                 )}
 
-              {!isSosActive && rawType === 'OLD' && (
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-[#FFF7E6] border border-[#FFD591] px-2.5 py-0.5 text-xs font-bold text-[#D46B08]">
-                  <AlertTriangle className="h-3.5 w-3.5 text-[#FAAD14]" />
-                  Vị trí cuối cùng đã biết
+              {isShowingLastValidWhileSearching && (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-[#FFFBE6] border border-[#FFE58F] px-2.5 py-0.5 text-xs font-bold text-[#AD6800]">
+                  <Satellite className="h-3.5 w-3.5 text-[#FAAD14]" />
+                  GPS đang dò vệ tinh (Hiển thị vị trí gần nhất)
                 </span>
               )}
 
-              {!isSosActive && rawType === 'NONE' && (
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-[#FFF1F0] border border-[#FFA39E] px-2.5 py-0.5 text-xs font-bold text-[#CF1322]">
-                  <span className="h-1.5 w-1.5 rounded-full bg-[#F5222D]" />
-                  Chưa có tín hiệu vị trí
+              {!hasMapCoordinates && (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 border border-slate-300 px-2.5 py-0.5 text-xs font-bold text-slate-700">
+                  <Satellite className="h-3.5 w-3.5 text-[#FAAD14] animate-pulse" />
+                  Đang chờ tín hiệu GPS...
                 </span>
               )}
 
@@ -469,21 +563,17 @@ export const GPSTrackingView: React.FC<GPSTrackingViewProps> = ({
                   {addressLoading
                     ? 'Đang xác định địa chỉ đường phố...'
                     : resolvedAddress ||
-                      `Tọa độ: ${effectiveLat.toFixed(
-                        5
-                      )}°B, ${effectiveLon.toFixed(5)}°Đ`}
+                      'Đã xác định được vị trí của thiết bị trên bản đồ'}
                 </h2>
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-zinc-600">
                   <span>
-                    Tọa độ bản đồ:{' '}
+                    Chất lượng định vị:{' '}
                     <strong className="text-zinc-900">
-                      {effectiveLat.toFixed(5)}, {effectiveLon.toFixed(5)}
-                    </strong>
-                  </span>
-                  <span>
-                    Tín hiệu vệ tinh:{' '}
-                    <strong className="text-zinc-900">
-                      {sats !== null ? `${sats} vệ tinh` : 'Ổn định'}
+                      {isShowingLastValidWhileSearching
+                        ? 'Đang giữ vị trí gần nhất'
+                        : sats !== null && sats >= 4
+                        ? 'Tín hiệu rõ nét'
+                        : 'Ổn định'}
                     </strong>
                   </span>
                   <span>
@@ -497,11 +587,10 @@ export const GPSTrackingView: React.FC<GPSTrackingViewProps> = ({
             ) : (
               <>
                 <h2 className="text-base font-bold text-zinc-900">
-                  Chưa có dữ liệu định vị
+                  Đang chờ tín hiệu GPS...
                 </h2>
                 <p className="text-xs text-zinc-500">
-                  Thiết bị hiện chưa bắt được tín hiệu vệ tinh định vị. Bản đồ
-                  sẽ tự động hiển thị ngay khi thiết bị ra khu vực thoáng sóng.
+                  Thiết bị đang tìm tín hiệu định vị ngoài trời. Bản đồ tạm thời giữ ở vị trí mặc định trung tâm thành phố và sẽ tự động đặt điểm ghim ngay khi bắt được sóng GPS.
                 </p>
               </>
             )}
@@ -576,26 +665,26 @@ export const GPSTrackingView: React.FC<GPSTrackingViewProps> = ({
           </div>
         </div>
 
-        {/* Friendly Notice when position is Last Known (OLD) */}
-        {rawType === 'OLD' && (
-          <div className="rounded-lg border border-[#FFD591] bg-[#FFF7E6] px-4 py-3 flex items-start gap-3 text-xs text-[#AD4E00]">
-            <AlertTriangle className="h-4 w-4 text-[#FA8C16] shrink-0 mt-0.5" />
+        {/* Friendly Notice when GPS is searching satellites & holding lastValidPosition */}
+        {isShowingLastValidWhileSearching && (
+          <div className="rounded-lg border border-[#FFE58F] bg-[#FFFBE6] px-4 py-3 flex items-start gap-3 text-xs text-[#AD6800]">
+            <AlertTriangle className="h-4 w-4 text-[#FAAD14] shrink-0 mt-0.5" />
             <div className="space-y-0.5">
               <div className="font-bold">
-                Đang hiển thị vị trí cuối cùng đã biết:
+                GPS đang dò vệ tinh (Hiển thị vị trí gần nhất):
               </div>
               <p>
-                Thiết bị hiện đang ở trong nhà hoặc khu vực khuất sóng vệ tinh
-                nên chưa có tọa độ mới. Vị trí trên bản đồ là điểm dừng cuối
-                cùng được thiết bị lưu lại
-                {lastUtcText ? ` (lúc ${cleanTimeText(lastUtcText)})` : ''}.
+                Thiết bị hiện đang ở trong nhà hoặc khu vực khuất sóng định vị nên chưa có vị trí mới. Hệ thống đang giữ nguyên vị trí hợp lệ gần nhất trên bản đồ
+                {lastUtcText ? ` (ghi nhận lúc ${cleanTimeText(lastUtcText)})` : ''}. Các thông tin về pin và an toàn chuyển động vẫn cập nhật bình thường.
               </p>
             </div>
           </div>
         )}
 
         {/* Friendly Notice when CURRENT position was uploaded earlier */}
-        {rawType === 'CURRENT' && isStaleCurrentUpload && (
+        {!isShowingLastValidWhileSearching &&
+          rawType === 'CURRENT' &&
+          isStaleCurrentUpload && (
           <div className="rounded-lg border border-[#FFD591] bg-[#FFFBE6] px-4 py-3 flex items-start gap-3 text-xs text-[#AD6800]">
             <Clock className="h-4 w-4 text-[#FAAD14] shrink-0 mt-0.5" />
             <div className="space-y-0.5">
@@ -614,26 +703,51 @@ export const GPSTrackingView: React.FC<GPSTrackingViewProps> = ({
         )}
       </div>
 
-      {/* Map or Friendly Empty State */}
-      {hasMapCoordinates ? (
-        <div
-          className={`rounded-lg border p-3 shadow-[0_1px_2px_rgba(0,0,0,0.03)] transition-all duration-300 ${
-            isSosActive
-              ? 'border-2 border-[#F5222D] bg-[#FFF1F0]/40'
-              : 'border-[#E8E8E8] bg-white'
-          } ${isStaleOrOffline && !isSosActive ? 'opacity-75' : 'opacity-100'}`}
-        >
+      {/* Interactive Map Container (Always rendered: holds lastValidPosition or stays at default city center when waiting for first GPS fix) */}
+      <div
+        className={`relative rounded-lg border p-3 shadow-[0_1px_2px_rgba(0,0,0,0.03)] transition-all duration-300 ${
+          isSosActive
+            ? 'border-2 border-[#F5222D] bg-[#FFF1F0]/40'
+            : 'border-[#E8E8E8] bg-white'
+        } ${isStaleOrOffline && !isSosActive ? 'opacity-75' : 'opacity-100'}`}
+      >
+        <div className="relative">
           <div
             ref={mapContainerRef}
             className="h-[460px] w-full rounded-lg overflow-hidden border border-zinc-100"
           />
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-4 px-2 text-xs text-zinc-500">
+
+          {/* Floating Status Banner when no prior valid position exists (Default City Center view) */}
+          {!hasMapCoordinates && (
+            <div className="pointer-events-none absolute inset-x-4 top-4 z-[400] flex justify-center">
+              <div className="inline-flex items-center gap-2.5 rounded-xl border border-[#FFE58F] bg-white/95 px-4 py-2.5 text-xs font-bold text-[#AD6800] shadow-lg backdrop-blur-xs">
+                <Satellite className="h-4 w-4 text-[#FAAD14] animate-pulse shrink-0" />
+                <span>
+                  Đang chờ tín hiệu GPS... (Bản đồ đang giữ ở vị trí mặc định trung tâm thành phố)
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Floating Status Badge when holding lastValidPosition while GPS searches for satellites */}
+          {isShowingLastValidWhileSearching && (
+            <div className="pointer-events-none absolute right-3 top-3 z-[400]">
+              <div className="inline-flex items-center gap-1.5 rounded-lg border border-[#FFE58F] bg-[#FFFBE6]/95 px-3 py-1.5 text-[11px] font-bold text-[#AD6800] shadow-md">
+                <Satellite className="h-3.5 w-3.5 text-[#FAAD14] shrink-0" />
+                <span>GPS đang dò vệ tinh (Hiển thị vị trí gần nhất)</span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-4 px-2 text-xs text-zinc-500">
+          {hasMapCoordinates ? (
             <span className="inline-flex items-center gap-2">
               <span
                 style={{
                   backgroundColor: isSosActive
                     ? '#F5222D'
-                    : rawType === 'OLD'
+                    : isShowingLastValidWhileSearching
                     ? '#D46B08'
                     : isStaleCurrentUpload
                     ? '#FA8C16'
@@ -646,32 +760,25 @@ export const GPSTrackingView: React.FC<GPSTrackingViewProps> = ({
               <strong className={isSosActive ? 'text-[#CF1322]' : ''}>
                 {isSosActive
                   ? '🔴 VỊ TRÍ CẦU CỨU SOS:'
-                  : rawType === 'CURRENT'
-                  ? 'Vị trí ghi nhận:'
-                  : 'Vị trí lưu gần nhất:'}
+                  : isShowingLastValidWhileSearching
+                  ? 'Vị trí hợp lệ gần nhất:'
+                  : 'Vị trí ghi nhận:'}
               </strong>{' '}
               {resolvedAddress || 'Đang hiển thị trên bản đồ'}
             </span>
-            <span className="text-[11px]">
-              Chế độ bảo vệ: <strong>{activeModeProfile.label}</strong>
+          ) : (
+            <span className="inline-flex items-center gap-2 text-amber-700 font-semibold">
+              <Satellite className="h-3.5 w-3.5 text-amber-500 animate-pulse" />
+              <span>
+                Đang chờ tín hiệu GPS... Điểm ghim sẽ tự động xuất hiện ngay khi xác định được vị trí.
+              </span>
             </span>
-          </div>
+          )}
+          <span className="text-[11px]">
+            Chế độ bảo vệ: <strong>{activeModeProfile.label}</strong>
+          </span>
         </div>
-      ) : (
-        <div className="rounded-lg border border-[#E8E8E8] bg-white p-10 text-center shadow-[0_1px_2px_rgba(0,0,0,0.03)] space-y-3">
-          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-[#FFF7E6] text-[#D46B08] border border-[#FFD591]">
-            <Satellite className="h-6 w-6" />
-          </div>
-          <h3 className="text-base font-bold text-zinc-900">
-            Đang chờ tín hiệu định vị từ thiết bị
-          </h3>
-          <p className="mx-auto max-w-md text-xs text-zinc-500 leading-relaxed">
-            {telemetryLoading
-              ? 'Đang tải thông tin vị trí của thiết bị...'
-              : 'Thiết bị chưa gửi tọa độ định vị. Ngay khi người sử dụng di chuyển ra khu vực có sóng vệ tinh, vị trí sẽ tự động hiển thị trên bản đồ.'}
-          </p>
-        </div>
-      )}
+      </div>
     </div>
   );
 };

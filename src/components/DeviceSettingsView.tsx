@@ -9,6 +9,7 @@ import {
   HelmetDeviceState,
   UserRole,
 } from '../types/helmet';
+import { formatFriendlyDeviceName } from './DashboardView';
 
 interface DeviceSettingsViewProps {
   device: HelmetDeviceState;
@@ -37,9 +38,31 @@ export const DeviceSettingsView: React.FC<DeviceSettingsViewProps> = ({
     (currentUserRole === 'OWNER' || currentUserRole === 'ADMIN') &&
     !isServerDisconnected;
 
-  const displayDeviceId = telemetry?.deviceId || targetDeviceId;
-  const displayFirmware = telemetry?.firmwareVersion || '--';
-  const displayMode = telemetry?.device?.mode || '--';
+  const displayDeviceName = formatFriendlyDeviceName(
+    telemetry?.deviceId || targetDeviceId
+  );
+  const getFriendlyModeName = (rawMode?: string) => {
+    switch ((rawMode || '').toLowerCase()) {
+      case 'helmet':
+        return 'Mũ bảo hiểm';
+      case 'wheelchair':
+        return 'Xe lăn';
+      case 'motorbike':
+        return 'Xe máy';
+      case 'backpack':
+        return 'Balo';
+      default:
+        return 'Mũ bảo hiểm';
+    }
+  };
+  const displayModeLabel = getFriendlyModeName(
+    String(telemetry?.mode || telemetry?.device?.mode || 'helmet')
+  );
+  const getSensitivityLabel = (gVal: number) => {
+    if (gVal <= 3.0) return 'Nhạy cao';
+    if (gVal <= 4.5) return 'Tiêu chuẩn';
+    return 'Chỉ báo khi va chạm mạnh';
+  };
 
   const handleFieldChange = <K extends keyof DeviceConfiguration>(
     key: K,
@@ -64,20 +87,22 @@ export const DeviceSettingsView: React.FC<DeviceSettingsViewProps> = ({
       <div className="rounded-2xl border border-zinc-200/80 bg-white p-6 shadow-[0_2px_10px_rgba(0,0,0,0.02)] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex flex-wrap items-center gap-2.5">
-            <h2 className="text-base font-bold text-zinc-900">CAS-BOX của {ownerName}</h2>
-            <span className="rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs font-mono text-zinc-700">
-              Device ID: {displayDeviceId}
-            </span>
-            <span className="rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs text-zinc-600">
-              Mode: {displayMode}
+            <h2 className="text-base font-bold text-zinc-900">
+              {displayDeviceName} của {ownerName}
+            </h2>
+            <span className="rounded-full bg-[#E6F7FF] border border-[#91D5FF] px-2.5 py-0.5 text-xs font-semibold text-[#0050B3]">
+              Chế độ: {displayModeLabel}
             </span>
           </div>
           <p className="text-xs text-zinc-500 mt-1">
-            Firmware: <strong className="font-mono text-zinc-800">{displayFirmware}</strong> •{' '}
             {config.syncStatus === 'SYNCED' ? (
-              <span className="text-emerald-600 font-medium">Đã đồng bộ cài đặt mới nhất</span>
+              <span className="text-emerald-600 font-medium">
+                ✓ Đã đồng bộ cài đặt an toàn mới nhất với thiết bị
+              </span>
             ) : (
-              <span className="text-amber-600 font-medium">Có thay đổi chưa đồng bộ lên mũ</span>
+              <span className="text-amber-600 font-medium">
+                ● Có thay đổi cài đặt chưa lưu xuống thiết bị
+              </span>
             )}
           </p>
         </div>
@@ -147,7 +172,7 @@ export const DeviceSettingsView: React.FC<DeviceSettingsViewProps> = ({
               </p>
             </div>
             <span className="shrink-0 rounded-lg bg-zinc-100 px-3 py-1 text-xs font-semibold text-zinc-900">
-              {config.impactThresholdG.toFixed(1)} G
+              {getSensitivityLabel(config.impactThresholdG)}
             </span>
           </div>
 
@@ -165,9 +190,9 @@ export const DeviceSettingsView: React.FC<DeviceSettingsViewProps> = ({
               className="w-full accent-zinc-900 cursor-pointer"
             />
             <div className="flex justify-between text-[11px] text-zinc-400 mt-1">
-              <span>Nhạy cao (2.5G)</span>
-              <span>Tiêu chuẩn (3.5G)</span>
-              <span>Va chạm mạnh (6.0G)</span>
+              <span>Nhạy cao (Phát hiện ngã nhẹ)</span>
+              <span>Tiêu chuẩn (Khuyên dùng)</span>
+              <span>Chỉ khi va chạm mạnh</span>
             </div>
           </div>
         </div>

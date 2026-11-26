@@ -77,6 +77,15 @@ export interface FirebaseGpsNode {
   satellites?: number;
 }
 
+export interface LastValidGpsPosition {
+  lat: number;
+  lon: number;
+  updatedAtMs: number | null;
+  updatedAtText: string;
+  sats: number | null;
+  hdop: number | null;
+}
+
 export interface NormalizedGpsStatus {
   rawType: GpsFixType; // 'CURRENT' | 'OLD' | 'NONE'
   isInferredLegacyType: boolean; // true if firmware V2.4.2-dev did not send explicit `type`
@@ -86,15 +95,19 @@ export interface NormalizedGpsStatus {
   lon: number | null;
   lastLat: number | null;
   lastLon: number | null;
-  displayLat: number | null; // Active lat for map/card (null when NONE)
-  displayLon: number | null; // Active lon for map/card (null when NONE)
+  displayLat: number | null; // Active lat for map/card (retains lastValidPosition.lat when incoming coords are 0,0 / invalid)
+  displayLon: number | null; // Active lon for map/card (retains lastValidPosition.lon when incoming coords are 0,0 / invalid)
+  hasInvalidIncomingCoords: boolean; // True when incoming packet contains (0,0) or invalid coordinates
+  isSearchingSatellites: boolean; // True when GPS has not locked satellites and is showing lastValidPosition or waiting for first fix
+  usingLastValidPosition: boolean; // True when marker is holding lastValidPosition instead of jumping to invalid (0,0)
+  lastValidPosition: LastValidGpsPosition | null;
   sats: number | null;
   hdop: number | null;
   ageMs: number | null;
   updatedAtMs: number | null;
   updatedAtText: string; // Formatted in UTC+7
   secondsSinceGpsUpdate: number | null;
-  isFreshRealtime: boolean; // True ONLY when rawType === 'CURRENT' AND updatedAt is recent
+  isFreshRealtime: boolean; // True ONLY when rawType === 'CURRENT' AND updatedAt is recent AND !usingLastValidPosition
   isStaleCurrentUpload: boolean; // True when rawType === 'CURRENT' BUT updatedAt was uploaded long ago
   lastUtcText: string | null; // Formatted from lastUtcYMD & lastUtcHMS
   googleMapsUrl: string | null;

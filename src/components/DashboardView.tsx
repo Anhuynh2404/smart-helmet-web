@@ -24,13 +24,17 @@ import {
   Moon,
   Phone,
   PhoneCall,
+  Satellite,
   ShieldCheck,
   Sliders,
   Wifi,
   WifiOff,
 } from 'lucide-react';
 import {
+  DEFAULT_CITY_MAP_CENTER,
+  DEFAULT_CITY_MAP_ZOOM,
   formatToVietnamTimezone,
+  isValidLatLonPair,
   TelemetryErrorCode,
 } from '../hooks/useHelmetTelemetry';
 import { SmartBatteryEstimate } from '../hooks/useSmartBatteryEstimator';
@@ -96,7 +100,11 @@ export function formatFriendlyDeviceName(deviceId: string): string {
   if (clean === 'helmet01_phase34') {
     return 'Thiết bị CAS-BOX #2';
   }
-  return `Thiết bị ${clean}`;
+  const numMatch = /(\d+)$/.exec(clean);
+  if (numMatch) {
+    return `Thiết bị CAS-BOX #${Number(numMatch[1])}`;
+  }
+  return 'Thiết bị bảo hộ CAS-BOX';
 }
 
 export function formatFriendlyDuration(seconds: number | null): string {
@@ -172,42 +180,61 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const isSosActive = Boolean(activeEmergencySos);
   const dashboardMapContainerRef = useRef<HTMLDivElement | null>(null);
   const dashboardMapInstanceRef = useRef<L.Map | null>(null);
+  const dashboardMarkerRef = useRef<L.Marker | null>(null);
+  const lastDashboardPannedRef = useRef<{
+    deviceId: string;
+    lat: number;
+    lon: number;
+  } | null>(null);
 
-  const effectiveMapLat =
-    gpsStatus.displayLat ??
-    (isSosActive && typeof activeEmergencySos?.loc.lat === 'number'
-      ? activeEmergencySos.loc.lat
-      : null);
-  const effectiveMapLon =
-    gpsStatus.displayLon ??
-    (isSosActive && typeof activeEmergencySos?.loc.lon === 'number'
-      ? activeEmergencySos.loc.lon
-      : null);
-  const hasDashboardMapCoords =
-    effectiveMapLat !== null &&
-    effectiveMapLon !== null &&
-    !(effectiveMapLat === 0 && effectiveMapLon === 0);
+  const validSosLat =
+    isSosActive &&
+    isValidLatLonPair(activeEmergencySos?.loc.lat, activeEmergencySos?.loc.lon)
+      ? (activeEmergencySos!.loc.lat as number)
+      : null;
+  const validSosLon =
+    isSosActive &&
+    isValidLatLonPair(activeEmergencySos?.loc.lat, activeEmergencySos?.loc.lon)
+      ? (activeEmergencySos!.loc.lon as number)
+      : null;
+
+  const effectiveMapLat = gpsStatus.displayLat ?? validSosLat;
+  const effectiveMapLon = gpsStatus.displayLon ?? validSosLon;
+  const hasDashboardMapCoords = isValidLatLonPair(
+    effectiveMapLat,
+    effectiveMapLon
+  );
+
+  const isShowingLastValidWhileSearching =
+    hasDashboardMapCoords &&
+    (gpsStatus.usingLastValidPosition ||
+      gpsStatus.hasInvalidIncomingCoords ||
+      gpsStatus.isSearchingSatellites ||
+      gpsStatus.rawType === 'OLD');
 
   // Live Interactive Map on Dashboard with Red Pulsing/Blinking Marker when SOS is active
+  // Holds lastValidPosition without panning/zooming when incoming packet has invalid/0,0 coords,
+  // or stays at default city center when no valid position has ever been received before.
   useEffect(() => {
-    if (
-      !hasDashboardMapCoords ||
-      effectiveMapLat === null ||
-      effectiveMapLon === null
-    ) {
-      if (dashboardMapInstanceRef.current) {
-        dashboardMapInstanceRef.current.remove();
-        dashboardMapInstanceRef.current = null;
-      }
-      return;
-    }
-
     if (!dashboardMapContainerRef.current) return;
 
     if (!dashboardMapInstanceRef.current) {
+      const initialCenter: [number, number] =
+        hasDashboardMapCoords &&
+        effectiveMapLat !== null &&
+        effectiveMapLon !== null
+          ? [effectiveMapLat, effectiveMapLon]
+          : DEFAULT_CITY_MAP_CENTER;
+      const initialZoom =
+        hasDashboardMapCoords &&
+        effectiveMapLat !== null &&
+        effectiveMapLon !== null
+          ? 16
+          : DEFAULT_CITY_MAP_ZOOM;
+
       const map = L.map(dashboardMapContainerRef.current, {
-        center: [effectiveMapLat, effectiveMapLon],
-        zoom: 16,
+        center: initialCenter,
+        zoom: initialZoom,
         zoomControl: true,
       });
 
@@ -217,66 +244,140 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       }).addTo(map);
 
       dashboardMapInstanceRef.current = map;
+
+      if (
+        hasDashboardMapCoords &&
+        effectiveMapLat !== null &&
+        effectiveMapLon !== null
+      ) {
+        lastDashboardPannedRef.current = {
+          deviceId: targetDeviceId,
+          lat: effectiveMapLat,
+          lon: effectiveMapLon,
+        };
+      }
     }
 
     const map = dashboardMapInstanceRef.current;
 
-    map.eachLayer((layer) => {
-      if (!(layer instanceof L.TileLayer)) {
-        map.removeLayer(layer);
+    if (
+      !hasDashboardMapCoords ||
+      effectiveMapLat === null ||
+      effectiveMapLon === null
+    ) {
+      if (dashboardMarkerRef.current) {
+        map.removeLayer(dashboardMarkerRef.current);
+        dashboardMarkerRef.current = null;
       }
-    });
+      if (
+        lastDashboardPannedRef.current &&
+        lastDashboardPannedRef.current.deviceId !== targetDeviceId
+      ) {
+        lastDashboardPannedRef.current = null;
+        map.setView(DEFAULT_CITY_MAP_CENTER, DEFAULT_CITY_MAP_ZOOM);
+      }
+      return;
+    }
+
+    const effectiveRawTypeForIcon = isShowingLastValidWhileSearching
+      ? 'OLD'
+      : gpsStatus.rawType;
 
     const markerIcon = buildDeviceLeafletMarkerIcon(
       activeModeProfile,
       isSosActive,
-      gpsStatus.rawType,
+      effectiveRawTypeForIcon,
       gpsStatus.isStaleCurrentUpload
     );
 
-    const accent = isSosActive ? '#F5222D' : activeModeProfile.accentColor;
+    const accent = isSosActive
+      ? '#F5222D'
+      : isShowingLastValidWhileSearching
+      ? '#D46B08'
+      : activeModeProfile.accentColor;
     const statusLabel = isSosActive
       ? '🔴 ĐANG CẦU CỨU SOS!'
-      : gpsStatus.rawType === 'CURRENT'
-      ? 'Vị trí trực tiếp'
-      : 'Vị trí lưu gần nhất';
+      : isShowingLastValidWhileSearching
+      ? 'GPS đang dò vệ tinh (Vị trí gần nhất)'
+      : 'Vị trí trực tiếp';
 
     const addressTitle =
-      resolvedAddress ||
-      `${effectiveMapLat.toFixed(5)}, ${effectiveMapLon.toFixed(5)}`;
+      resolvedAddress || 'Đã xác định vị trí của thiết bị trên bản đồ';
 
-    const marker = L.marker([effectiveMapLat, effectiveMapLon], {
-      icon: markerIcon,
-    })
-      .addTo(map)
-      .bindPopup(
-        `<div style="min-width:215px">
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:4px">
-            <span style="font-weight:700;color:${accent};font-size:12px">${friendlyDeviceTitle}</span>
-            <span style="background:${accent};color:#fff;padding:1px 7px;border-radius:999px;font-size:10px;font-weight:700">${statusLabel}</span>
-          </div>
-          <div style="font-size:12px;font-weight:600;color:#18181B">${addressTitle}</div>
-        </div>`
-      );
+    const popupHtml = `<div style="min-width:215px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:4px">
+        <span style="font-weight:700;color:${accent};font-size:12px">${friendlyDeviceTitle}</span>
+        <span style="background:${accent};color:#fff;padding:1px 7px;border-radius:999px;font-size:10px;font-weight:700">${statusLabel}</span>
+      </div>
+      <div style="font-size:12px;font-weight:600;color:#18181B">${addressTitle}</div>
+    </div>`;
+
+    if (!dashboardMarkerRef.current) {
+      dashboardMarkerRef.current = L.marker(
+        [effectiveMapLat, effectiveMapLon],
+        {
+          icon: markerIcon,
+        }
+      )
+        .addTo(map)
+        .bindPopup(popupHtml);
+    } else {
+      dashboardMarkerRef.current.setIcon(markerIcon);
+      dashboardMarkerRef.current.setPopupContent(popupHtml);
+    }
 
     if (isSosActive) {
-      marker.openPopup();
+      dashboardMarkerRef.current.openPopup();
     }
-    map.setView([effectiveMapLat, effectiveMapLon], map.getZoom());
+
+    const prevPanned = lastDashboardPannedRef.current;
+    const isFirstValidForDevice =
+      !prevPanned || prevPanned.deviceId !== targetDeviceId;
+    const hasValidCoordsMoved =
+      prevPanned !== null &&
+      (Math.abs(prevPanned.lat - effectiveMapLat) > 0.000001 ||
+        Math.abs(prevPanned.lon - effectiveMapLon) > 0.000001);
+
+    if (isFirstValidForDevice) {
+      dashboardMarkerRef.current.setLatLng([effectiveMapLat, effectiveMapLon]);
+      map.setView([effectiveMapLat, effectiveMapLon], 16);
+      lastDashboardPannedRef.current = {
+        deviceId: targetDeviceId,
+        lat: effectiveMapLat,
+        lon: effectiveMapLon,
+      };
+    } else if (
+      !gpsStatus.usingLastValidPosition &&
+      !gpsStatus.hasInvalidIncomingCoords &&
+      hasValidCoordsMoved
+    ) {
+      dashboardMarkerRef.current.setLatLng([effectiveMapLat, effectiveMapLon]);
+      map.setView([effectiveMapLat, effectiveMapLon], map.getZoom());
+      lastDashboardPannedRef.current = {
+        deviceId: targetDeviceId,
+        lat: effectiveMapLat,
+        lon: effectiveMapLon,
+      };
+    }
   }, [
     hasDashboardMapCoords,
     effectiveMapLat,
     effectiveMapLon,
     isSosActive,
+    isShowingLastValidWhileSearching,
     activeModeProfile,
     gpsStatus.rawType,
+    gpsStatus.usingLastValidPosition,
+    gpsStatus.hasInvalidIncomingCoords,
     gpsStatus.isStaleCurrentUpload,
     resolvedAddress,
     friendlyDeviceTitle,
+    targetDeviceId,
   ]);
 
   useEffect(() => {
     return () => {
+      dashboardMarkerRef.current = null;
       if (dashboardMapInstanceRef.current) {
         dashboardMapInstanceRef.current.remove();
         dashboardMapInstanceRef.current = null;
@@ -663,7 +764,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </span>
           </div>
           <span className="font-semibold text-[#873800] shrink-0">
-            Cập nhật lần cuối (Last updated): {formatLastSeen()}
+            Cập nhật lần cuối: {formatLastSeen()}
           </span>
         </div>
       )}
@@ -872,20 +973,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div className="flex items-center justify-between gap-1 text-xs text-[#8C8C8C]">
               <span className="truncate">
                 Vị trí định vị (
-                {gpsStatus.rawType === 'CURRENT'
-                  ? gpsStatus.isFreshRealtime
-                    ? 'Trực tiếp'
-                    : 'Ghi nhận gần nhất'
-                  : gpsStatus.rawType === 'OLD'
-                  ? 'Vị trí lưu cuối'
-                  : 'Đang dò sóng'}
+                {!hasDashboardMapCoords
+                  ? 'Chờ tín hiệu GPS'
+                  : isShowingLastValidWhileSearching
+                  ? 'Đang dò vệ tinh'
+                  : gpsStatus.isFreshRealtime
+                  ? 'Trực tiếp'
+                  : 'Ghi nhận gần nhất'}
                 )
               </span>
               <MapPin
                 className={`h-4 w-4 shrink-0 ${
-                  gpsStatus.rawType === 'CURRENT' && gpsStatus.isFreshRealtime
+                  !isShowingLastValidWhileSearching &&
+                  gpsStatus.rawType === 'CURRENT' &&
+                  gpsStatus.isFreshRealtime
                     ? 'text-[#52C41A]'
-                    : gpsStatus.rawType === 'NONE'
+                    : !hasDashboardMapCoords
                     ? 'text-[#CF1322]'
                     : 'text-[#FAAD14]'
                 }`}
@@ -893,7 +996,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
 
             <div className="mt-2">
-              {gpsStatus.rawType === 'CURRENT' &&
+              {!isShowingLastValidWhileSearching &&
+              gpsStatus.rawType === 'CURRENT' &&
               gpsStatus.lat !== null &&
               gpsStatus.lon !== null ? (
                 <>
@@ -926,21 +1030,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     {formatCleanVietnamTime(gpsStatus.updatedAtText)}
                   </div>
                 </>
-              ) : gpsStatus.rawType === 'OLD' &&
-                gpsStatus.displayLat !== null &&
-                gpsStatus.displayLon !== null ? (
+              ) : hasDashboardMapCoords ? (
                 <>
-                  <div className="inline-flex items-center gap-1 rounded bg-[#FFF7E6] border border-[#FFD591] px-2 py-0.5 text-[10.5px] font-semibold text-[#AD4E00] mb-1">
-                    Vị trí cuối cùng trước khi mất sóng
+                  <div className="inline-flex items-center gap-1 rounded bg-[#FFFBE6] border border-[#FFE58F] px-2 py-0.5 text-[10.5px] font-bold text-[#AD6800] mb-1">
+                    <Satellite className="h-3 w-3 text-[#FAAD14] shrink-0" />
+                    <span>GPS đang dò vệ tinh (Hiển thị vị trí gần nhất)</span>
                   </div>
                   <div className="text-[13px] font-bold text-[#262626] line-clamp-1 leading-snug">
                     {addressLoading
                       ? 'Đang xác định tên đường...'
-                      : resolvedAddress || 'Đã lưu vị trí gần nhất trên bản đồ'}
+                      : resolvedAddress || 'Đã giữ vị trí hợp lệ gần nhất'}
                   </div>
                   <div className="mt-1 flex items-center justify-between text-xs">
-                    <span className="text-[#AD4E00]">
-                      Xem lại vị trí gần nhất
+                    <span className="text-[#AD6800]">
+                      Giữ nguyên vị trí gần nhất
                     </span>
                     {gpsStatus.googleMapsUrl && (
                       <a
@@ -958,11 +1061,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 </>
               ) : (
                 <div className="py-1.5">
-                  <div className="text-sm font-bold text-[#D46B08]">
-                    Chưa xác định được vị trí
+                  <div className="inline-flex items-center gap-1.5 rounded bg-slate-100 border border-slate-300 px-2 py-0.5 text-[11px] font-bold text-slate-700">
+                    <Satellite className="h-3 w-3 text-[#FAAD14] animate-pulse" />
+                    <span>Đang chờ tín hiệu GPS...</span>
                   </div>
-                  <p className="text-xs text-[#8C8C8C] mt-1">
-                    Thiết bị đang dò sóng vệ tinh ngoài trời...
+                  <p className="text-xs text-[#8C8C8C] mt-1.5">
+                    Bản đồ đang giữ ở vị trí mặc định trung tâm thành phố.
                   </p>
                 </div>
               )}
@@ -971,11 +1075,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
           <div className="mt-3.5 pt-3 border-t border-[#F0F0F0] flex items-center justify-between text-xs text-[#595959]">
             <span>
-              Vệ tinh:{' '}
+              Tín hiệu định vị:{' '}
               <strong className="text-[#262626]">
-                {gpsStatus.sats !== null
-                  ? `${gpsStatus.sats} vệ tinh`
-                  : 'Đang dò'}
+                {!hasDashboardMapCoords
+                  ? 'Đang tìm sóng'
+                  : isShowingLastValidWhileSearching
+                  ? 'Đang dò lại sóng'
+                  : 'Ổn định'}
               </strong>
             </span>
             <span className="font-semibold text-[#1890FF] group-hover:underline">
@@ -985,41 +1091,51 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       </div>
 
-      {/* LIVE DASHBOARD MAP WITH PULSING RED SOS MARKER & STALE DATA OVERLAY */}
-      {hasDashboardMapCoords && (
-        <div
-          className={`rounded-lg border p-4 shadow-[0_1px_2px_rgba(0,0,0,0.03)] space-y-3 transition-all duration-300 ${
-            isSosActive
-              ? 'border-2 border-[#F5222D] bg-[#FFF1F0]/45'
-              : 'border-[#E8E8E8] bg-white'
-          } ${isStaleOrDisconnected && !isSosActive ? 'opacity-80' : ''}`}
-        >
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <MapPin
-                className={`h-4 w-4 ${
-                  isSosActive ? 'text-[#F5222D] animate-bounce' : 'text-[#1890FF]'
-                }`}
-              />
-              <h3 className="text-sm font-bold text-[#262626]">
-                Bản đồ vị trí thiết bị
-              </h3>
-              {isSosActive ? (
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-[#F5222D] px-2.5 py-0.5 text-[11px] font-extrabold text-white animate-pulse">
-                  ● MARKER ĐỎ NHẤP NHÁY — ĐANG PHÁT TÍN HIỆU SOS
-                </span>
-              ) : isStaleOrDisconnected ? (
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-[#FFF7E6] border border-[#FFD591] px-2.5 py-0.5 text-[11px] font-bold text-[#D46B08]">
-                  ● Dữ liệu cũ (Offline) • Cập nhật lần cuối: {formatLastSeen()}
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-[#F6FFED] border border-[#B7EB8F] px-2.5 py-0.5 text-[11px] font-semibold text-[#389E0D]">
-                  ● Trạng thái trực tiếp ({activeModeProfile.label})
-                </span>
-              )}
-            </div>
+      {/* LIVE DASHBOARD MAP WITH PULSING RED SOS MARKER, LAST VALID POSITION RETENTION & DEFAULT CITY FALLBACK */}
+      <div
+        className={`rounded-lg border p-4 shadow-[0_1px_2px_rgba(0,0,0,0.03)] space-y-3 transition-all duration-300 ${
+          isSosActive
+            ? 'border-2 border-[#F5222D] bg-[#FFF1F0]/45'
+            : 'border-[#E8E8E8] bg-white'
+        } ${isStaleOrDisconnected && !isSosActive ? 'opacity-80' : ''}`}
+      >
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <MapPin
+              className={`h-4 w-4 ${
+                isSosActive ? 'text-[#F5222D] animate-bounce' : 'text-[#1890FF]'
+              }`}
+            />
+            <h3 className="text-sm font-bold text-[#262626]">
+              Bản đồ vị trí thiết bị
+            </h3>
+            {isSosActive ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-[#F5222D] px-2.5 py-0.5 text-[11px] font-extrabold text-white animate-pulse">
+                ● ĐANG PHÁT TÍN HIỆU CẦU CỨU KHẨN CẤP
+              </span>
+            ) : !hasDashboardMapCoords ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 border border-slate-300 px-2.5 py-0.5 text-[11px] font-bold text-slate-700">
+                <Satellite className="h-3.5 w-3.5 text-[#FAAD14] animate-pulse" />
+                Đang chờ tín hiệu GPS...
+              </span>
+            ) : isShowingLastValidWhileSearching ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-[#FFFBE6] border border-[#FFE58F] px-2.5 py-0.5 text-[11px] font-bold text-[#AD6800]">
+                <Satellite className="h-3.5 w-3.5 text-[#FAAD14]" />
+                GPS đang dò vệ tinh (Hiển thị vị trí gần nhất)
+              </span>
+            ) : isStaleOrDisconnected ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-[#FFF7E6] border border-[#FFD591] px-2.5 py-0.5 text-[11px] font-bold text-[#D46B08]">
+                ● Dữ liệu cũ (Offline) • Cập nhật lần cuối: {formatLastSeen()}
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-[#F6FFED] border border-[#B7EB8F] px-2.5 py-0.5 text-[11px] font-semibold text-[#389E0D]">
+                ● Trạng thái trực tiếp ({activeModeProfile.label})
+              </span>
+            )}
+          </div>
 
-            <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2">
+            {hasDashboardMapCoords && (
               <button
                 type="button"
                 onClick={() => {
@@ -1040,23 +1156,37 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <LocateFixed className="h-3.5 w-3.5" />
                 <span>Định tâm</span>
               </button>
+            )}
 
-              <button
-                type="button"
-                onClick={() => onNavigateTab('gps')}
-                className="inline-flex items-center gap-1 rounded-md bg-[#1890FF] px-3 py-1 text-xs font-semibold text-white hover:bg-[#40A9FF] transition"
-              >
-                <span>Mở bản đồ toàn màn hình →</span>
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => onNavigateTab('gps')}
+              className="inline-flex items-center gap-1 rounded-md bg-[#1890FF] px-3 py-1 text-xs font-semibold text-white hover:bg-[#40A9FF] transition"
+            >
+              <span>Mở bản đồ toàn màn hình →</span>
+            </button>
           </div>
+        </div>
 
+        <div className="relative">
           <div
             ref={dashboardMapContainerRef}
             className="h-[270px] w-full rounded-lg overflow-hidden border border-zinc-200"
           />
+
+          {/* Floating Overlay when no prior valid position exists */}
+          {!hasDashboardMapCoords && (
+            <div className="pointer-events-none absolute inset-x-4 top-3 z-[400] flex justify-center">
+              <div className="inline-flex items-center gap-2 rounded-xl border border-[#FFE58F] bg-white/95 px-3.5 py-2 text-xs font-bold text-[#AD6800] shadow-md backdrop-blur-xs">
+                <Satellite className="h-4 w-4 text-[#FAAD14] animate-pulse shrink-0" />
+                <span>
+                  Đang chờ tín hiệu GPS... (Giữ bản đồ tại vị trí trung tâm mặc định)
+                </span>
+              </div>
+            </div>
+          )}
         </div>
-      )}
+      </div>
 
       {/* 4 OPERATING MODES SELECTOR (Clean End-User View) */}
       <div className="rounded-lg border border-[#E8E8E8] bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,0.03)] space-y-4">
@@ -1154,21 +1284,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   )}
                 </div>
 
-                <div className="mt-3 pt-2.5 border-t border-[#E8E8E8]/80 grid grid-cols-3 gap-1.5 text-[11px]">
+                <div className="mt-3 pt-2.5 border-t border-[#E8E8E8]/80 grid grid-cols-2 gap-1.5 text-[11px]">
                   <div className="rounded bg-white px-2 py-1 border border-[#F0F0F0]">
-                    <span className="text-[#8C8C8C] block">Lực va chạm</span>
+                    <span className="text-[#8C8C8C] block">Độ nhạy bảo vệ</span>
                     <strong className="text-[#262626]">
-                      ≥ {m.thresholds.impactThresholdG}G
+                      {m.id === 'wheelchair'
+                        ? 'Rất nhạy'
+                        : m.id === 'helmet'
+                        ? 'Tiêu chuẩn'
+                        : m.id === 'motorbike'
+                        ? 'Chống rung xe'
+                        : 'Di chuyển bộ'}
                     </strong>
                   </div>
                   <div className="rounded bg-white px-2 py-1 border border-[#F0F0F0]">
-                    <span className="text-[#8C8C8C] block">Độ nghiêng</span>
-                    <strong className="text-[#262626]">
-                      ≥ {m.thresholds.tiltAngleThresholdDeg}°
-                    </strong>
-                  </div>
-                  <div className="rounded bg-white px-2 py-1 border border-[#F0F0F0]">
-                    <span className="text-[#8C8C8C] block">Chờ hủy</span>
+                    <span className="text-[#8C8C8C] block">Chờ hủy báo động</span>
                     <strong className="text-[#262626]">
                       {m.thresholds.cancelWindowSec} giây
                     </strong>
@@ -1241,7 +1371,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div className="rounded-lg border border-[#E8E8E8] bg-[#FAFAFA] p-4 flex flex-col justify-between">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold text-[#595959]">
-                  Tư thế &amp; Độ nghiêng hiện tại
+                  Tư thế sử dụng hiện tại
                 </span>
                 <Compass className="h-4 w-4 text-[#1890FF]" />
               </div>
@@ -1250,12 +1380,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   {getPostureHumanText(mpuTiltDeg)}
                 </div>
                 <div className="text-xs text-[#595959] mt-1">
-                  Góc nghiêng đo được:{' '}
-                  <strong className="text-[#1890FF]">
-                    {mpuTiltDeg !== null ? `${mpuTiltDeg}°` : 'Chưa có'}
-                  </strong>{' '}
-                  (Ngưỡng cảnh báo: ≥{' '}
-                  {activeModeProfile.thresholds.tiltAngleThresholdDeg}°)
+                  {mpuTiltDeg === null
+                    ? 'Đang chờ thiết bị cập nhật trạng thái tư thế.'
+                    : mpuTiltDeg < 20
+                    ? 'Thiết bị đang ở tư thế cân bằng và ổn định.'
+                    : mpuTiltDeg <
+                      activeModeProfile.thresholds.tiltAngleThresholdDeg
+                    ? 'Thiết bị đang nghiêng nhẹ nhưng vẫn trong giới hạn an toàn.'
+                    : 'Phát hiện thiết bị nghiêng nhiều hơn mức bình thường.'}
                 </div>
               </div>
             </div>
@@ -1264,7 +1396,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div className="rounded-lg border border-[#E8E8E8] bg-[#FAFAFA] p-4 flex flex-col justify-between">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold text-[#595959]">
-                  Mức độ chấn động &amp; Va chạm
+                  Trạng thái chuyển động &amp; Va chạm
                 </span>
                 <Activity className="h-4 w-4 text-[#13C2C2]" />
               </div>
@@ -1273,12 +1405,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   {getImpactHumanText(accelMagnitudeG)}
                 </div>
                 <div className="text-xs text-[#595959] mt-1">
-                  Lực tác động hiện tại:{' '}
-                  <strong className="text-[#006D75]">
-                    {accelMagnitudeG !== null ? `${accelMagnitudeG} G` : 'Chưa có'}
-                  </strong>{' '}
-                  (Ngưỡng va chạm: ≥{' '}
-                  {activeModeProfile.thresholds.impactThresholdG} G)
+                  {accelMagnitudeG === null
+                    ? 'Đang chờ thiết bị gửi thông tin hành trình.'
+                    : accelMagnitudeG < 1.5
+                    ? 'Không phát hiện va đập, hành trình diễn ra an toàn.'
+                    : accelMagnitudeG <
+                      activeModeProfile.thresholds.impactThresholdG
+                    ? 'Ghi nhận rung lắc nhẹ trên đường di chuyển.'
+                    : 'Phát hiện chấn động mạnh, hệ thống đang kiểm tra an toàn.'}
                 </div>
               </div>
             </div>
@@ -1327,7 +1461,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       key={idx}
                       title={`Lúc ${formatCleanVietnamTime(
                         s.timeLabel
-                      )} — Mức chấn động: ${s.accelTotalG} G`}
+                      )} — ${getImpactHumanText(s.accelTotalG)}`}
                       className="flex-1 flex flex-col items-center justify-end h-full group"
                     >
                       <div
