@@ -39,7 +39,9 @@ export const DEFAULT_HELMET_DEVICE_ID = normalizeDeviceId(rawEnvDeviceId);
 export const KNOWN_DEFAULT_DEVICES = ['helmet01', 'helmet01_phase34'];
 
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || '',
+  apiKey:
+    import.meta.env.VITE_FIREBASE_API_KEY ||
+    'AIzaSyBafuiDHs3VPxjcqHw3RQFe2G29Y8-mUqY',
   authDomain:
     import.meta.env.VITE_FIREBASE_AUTH_DOMAIN ||
     'smart-helmet-iot-efc7e.firebaseapp.com',
@@ -50,8 +52,11 @@ const firebaseConfig = {
   storageBucket:
     import.meta.env.VITE_FIREBASE_STORAGE_BUCKET ||
     'smart-helmet-iot-efc7e.firebasestorage.app',
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '',
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || '',
+  messagingSenderId:
+    import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '248238403818',
+  appId:
+    import.meta.env.VITE_FIREBASE_APP_ID ||
+    '1:248238403818:web:6048a483641028c1c2e793',
 };
 
 let appInstance: FirebaseApp | null = null;
